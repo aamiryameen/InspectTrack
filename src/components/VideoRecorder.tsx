@@ -39,7 +39,7 @@ const VideoRecorder = () => {
 
   useEffect(() => {
     checkPermissions();
-    startGyroscope();
+    // startGyroscope();
     startLocationTracking();
 
     return () => {
@@ -55,11 +55,11 @@ const VideoRecorder = () => {
     };
   }, []);
 
-  const startGyroscope = () => {
-    gyroSubscription.current = gyroscope.subscribe(({ x, y, z }) => {
-      setGyroData({ x, y, z });
-    });
-  };
+  // const startGyroscope = () => {
+  //   gyroSubscription.current = gyroscope.subscribe(({ x, y, z }) => {
+  //     setGyroData({ x, y, z });
+  //   });
+  // };
 
   const startLocationTracking = async () => {
     if (Platform.OS === 'android') {
@@ -268,12 +268,12 @@ const VideoRecorder = () => {
         </View>
 
         <View style={styles.dataOverlay}>
-          <View style={styles.dataContainer}>
+          {/* <View style={styles.dataContainer}>
             <Text style={styles.dataLabel}>GYROSCOPE</Text>
             <Text style={styles.dataText}>X: {gyroData.x.toFixed(2)}</Text>
             <Text style={styles.dataText}>Y: {gyroData.y.toFixed(2)}</Text>
             <Text style={styles.dataText}>Z: {gyroData.z.toFixed(2)}</Text>
-          </View>
+          </View> */}
 
           {location && (
             <View style={styles.dataContainer}>
