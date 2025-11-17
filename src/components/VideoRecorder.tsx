@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, useMicrophonePermission, useCameraFormat } from 'react-native-vision-camera';
 import RNFS from 'react-native-fs';
+import { gyroscope } from 'react-native-sensors';
+import Geolocation from '@react-native-community/geolocation';
 
 const { width, height } = Dimensions.get('window');
 
@@ -20,7 +22,11 @@ const VideoRecorder = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [gyroData, setGyroData] = useState({ x: 0, y: 0, z: 0 });
+  const [location, setLocation] = useState<{ latitude: number; longitude: number; address: string } | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const gyroSubscription = useRef<any>(null);
+  const locationWatchId = useRef<number | null>(null);
 
   const device = useCameraDevice('back');
   const format = useCameraFormat(device, [
@@ -33,15 +39,66 @@ const VideoRecorder = () => {
 
   useEffect(() => {
     checkPermissions();
-  }, []);
+    startGyroscope();
+    startLocationTracking();
 
-  useEffect(() => {
     return () => {
       if (timerRef.current) {
         clearInterval(timerRef.current);
       }
+      if (gyroSubscription.current) {
+        gyroSubscription.current.unsubscribe();
+      }
+      if (locationWatchId.current !== null) {
+        Geolocation.clearWatch(locationWatchId.current);
+      }
     };
   }, []);
+
+  const startGyroscope = () => {
+    gyroSubscription.current = gyroscope.subscribe(({ x, y, z }) => {
+      setGyroData({ x, y, z });
+    });
+  };
+
+  const startLocationTracking = async () => {
+    if (Platform.OS === 'android') {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+      );
+      if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+        return;
+      }
+    }
+
+    locationWatchId.current = Geolocation.watchPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        const address = await reverseGeocode(latitude, longitude);
+        setLocation({ latitude, longitude, address });
+      },
+      (error) => console.error('Location error:', error),
+      { enableHighAccuracy: true, distanceFilter: 10, interval: 1000 }
+    );
+  };
+
+  const reverseGeocode = async (latitude: number, longitude: number): Promise<string> => {
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
+        {
+          headers: {
+            'User-Agent': 'InspectTrack/1.0',
+          },
+        }
+      );
+      const data = await response.json();
+      return data.display_name || `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+    } catch (error) {
+      console.error('Geocoding error:', error);
+      return `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+    }
+  };
 
   const checkPermissions = async () => {
     if (!hasCameraPermission) {
@@ -208,6 +265,26 @@ const VideoRecorder = () => {
           </View>
         </View>
 
+        <View style={styles.dataOverlay}>
+          <View style={styles.dataContainer}>
+            <Text style={styles.dataLabel}>GYROSCOPE</Text>
+            <Text style={styles.dataText}>X: {gyroData.x.toFixed(2)}</Text>
+            <Text style={styles.dataText}>Y: {gyroData.y.toFixed(2)}</Text>
+            <Text style={styles.dataText}>Z: {gyroData.z.toFixed(2)}</Text>
+          </View>
+
+          {location && (
+            <View style={styles.dataContainer}>
+              <Text style={styles.dataLabel}>LOCATION</Text>
+              <Text style={styles.dataText}>Lat: {location.latitude.toFixed(6)}</Text>
+              <Text style={styles.dataText}>Lon: {location.longitude.toFixed(6)}</Text>
+              <Text style={styles.addressText} numberOfLines={2}>
+                {location.address}
+              </Text>
+            </View>
+          )}
+        </View>
+
         <View style={styles.bottomBar}>
           {isProcessing ? (
             <View style={styles.processingContainer}>
@@ -356,6 +433,40 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  dataOverlay: {
+    position: 'absolute',
+    left: 20,
+    top: 120,
+    gap: 15,
+  },
+  dataContainer: {
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    minWidth: 180,
+  },
+  dataLabel: {
+    color: '#00FF00',
+    fontSize: 11,
+    fontWeight: '700',
+    marginBottom: 6,
+    letterSpacing: 1,
+  },
+  dataText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: '500',
+    marginBottom: 2,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  addressText: {
+    color: '#FFF',
+    fontSize: 11,
+    fontWeight: '400',
+    marginTop: 4,
+    lineHeight: 16,
   },
 });
 
