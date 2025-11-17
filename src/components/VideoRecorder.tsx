@@ -186,6 +186,7 @@ const VideoRecorder = () => {
       await camera.current.stopRecording();
       setIsRecording(false);
       stopTimer();
+      setRecordingTime(0);
     } catch (error) {
       console.error('Pause recording error:', error);
       Alert.alert('Error', 'Failed to stop recording');
@@ -206,21 +207,22 @@ const VideoRecorder = () => {
 
       setIsProcessing(false);
 
+      const folderName = Platform.OS === 'ios' ? 'Documents' : 'Downloads';
       Alert.alert(
-        'Success',
-        `Video saved to ${Platform.OS === 'ios' ? 'Documents' : 'Downloads'} folder`,
+        'Video Downloaded',
+        `Your video has been successfully downloaded and saved to ${folderName} folder.\n\nFile: ${fileName}`,
         [
           {
             text: 'OK',
             onPress: () => {
-              setRecordingTime(0);
+              console.log('Video saved successfully');
             },
           },
         ]
       );
     } catch (error) {
       console.error('Save video error:', error);
-      Alert.alert('Error', 'Failed to save video');
+      Alert.alert('Error', 'Failed to download video. Please try again.');
       setIsProcessing(false);
     }
   };
