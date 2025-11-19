@@ -1,56 +1,73 @@
 import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { Provider } from 'react-redux';
 import HomeScreen from './src/screens/HomeScreen';
 import RecordingScreen from './src/screens/RecordingScreen';
-import SettingsScreen from './src/screens/SettingsScreen';
+import SummaryScreen from './src/screens/SummaryScreen';
+import { store } from './src/store/store';
+import { RecordingSettings } from './src/utils/settingsUtils';
 
 export type RootStackParamList = {
   Home: undefined;
-  Recording: undefined;
-  Settings: undefined;
+  Recording: {
+    settings: RecordingSettings;
+    zoom: number;
+  };
+  Summary: {
+    startTime: string;
+    endTime: string;
+    distance: number;
+    duration: number;
+    avgCPU: number;
+    highestCPU: number;
+    avgMemory: number;
+    highestMemory: number;
+    videoPath: string;
+  };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const App = () => {
   return (
-    <NavigationContainer>
-      <Stack.Navigator
-        initialRouteName="Home"
-        screenOptions={{
-          headerStyle: {
-            backgroundColor: '#000',
-          },
-          headerTintColor: '#FFF',
-          headerTitleStyle: {
-            fontWeight: 'bold',
-          },
-        }}
-      >
-        <Stack.Screen
-          name="Home"
-          component={HomeScreen}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="Recording"
-          component={RecordingScreen}
-          options={{
-            title: 'Video Recording',
-            headerShown: true,
+    <Provider store={store}>
+      <NavigationContainer>
+        <Stack.Navigator
+          initialRouteName="Home"
+          screenOptions={{
+            headerStyle: {
+              backgroundColor: '#000',
+            },
+            headerTintColor: '#FFF',
+            headerTitleStyle: {
+              fontWeight: 'bold',
+            },
           }}
-        />
-        <Stack.Screen
-          name="Settings"
-          component={SettingsScreen}
-          options={{
-            title: 'Recording Settings',
-            headerShown: true,
-          }}
-        />
-      </Stack.Navigator>
-    </NavigationContainer>
+        >
+          <Stack.Screen
+            name="Home"
+            component={HomeScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Recording"
+            component={RecordingScreen}
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen
+            name="Summary"
+            component={SummaryScreen}
+            options={{
+              title: 'Summary',
+              headerShown: true,
+            }}
+          />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </Provider>
   );
 };
 
