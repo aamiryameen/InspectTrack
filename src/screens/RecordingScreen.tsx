@@ -28,6 +28,13 @@ type RecordingScreenProps = NativeStackScreenProps<RootStackParamList, 'Recordin
 const RecordingScreen: React.FC<RecordingScreenProps> = ({ route }) => {
   const { settings, zoom } = route.params;
 
+  console.log('📹 RecordingScreen received settings:', {
+    camera: settings.camera,
+    video: settings.video,
+    frameRate: settings.frameRate,
+    zoom,
+  });
+
   return (
     <View style={styles.container}>
       <VideoRecorder settings={settings} zoom={zoom} />

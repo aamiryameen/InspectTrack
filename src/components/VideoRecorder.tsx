@@ -10,6 +10,7 @@ import {
   Dimensions,
   ActivityIndicator,
   Animated,
+  Pressable,
 } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, useMicrophonePermission, useCameraFormat } from 'react-native-vision-camera';
 import RNFS from 'react-native-fs';
@@ -64,6 +65,9 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const [cpuUsage, setCpuUsage] = useState(77);
   const [memoryUsage, setMemoryUsage] = useState(23);
   const [storageUsage, setStorageUsage] = useState(3.76);
+  const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
+  const [cameraLayout, setCameraLayout] = useState({ width: 0, height: 0 });
+  const focusFadeAnim = useRef(new Animated.Value(0)).current;
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const gyroSubscription = useRef<any>(null);
   const locationWatchId = useRef<number | null>(null);
@@ -88,6 +92,13 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     { videoResolution: resolution },
     { fps: settings.frameRate.fps }
   ]);
+
+  // Calculate the actual FPS to use based on format support
+  const fps = format ? Math.min(format.maxFps, settings.frameRate.fps) : settings.frameRate.fps;
+  
+  // Determine if HDR is supported and should be enabled
+  const hdrEnabled = settings.camera.hdr && format?.supportsVideoHdr;
+  const photoHdrEnabled = settings.camera.hdr && format?.supportsPhotoHdr;
 
   const { hasPermission: hasCameraPermission, requestPermission: requestCameraPermission } = useCameraPermission();
   const { hasPermission: hasMicrophonePermission, requestPermission: requestMicrophonePermission } = useMicrophonePermission();
@@ -483,6 +494,70 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     }
   };
 
+  const handleCameraLayout = (event: any) => {
+    const { width, height } = event.nativeEvent.layout;
+    setCameraLayout({ width, height });
+  };
+
+  const handleTapToFocus = async (event: any) => {
+    if (!settings.camera.tapToFocusEnabled || !device?.supportsFocus) {
+      console.log('❌ Tap-to-focus disabled or not supported');
+      return;
+    }
+    
+    const { locationX, locationY } = event.nativeEvent;
+    
+    // Validate coordinates
+    if (locationX === undefined || locationY === undefined) {
+      console.log('❌ Invalid tap coordinates');
+      return;
+    }
+
+    // Validate camera layout
+    if (!cameraLayout.width || !cameraLayout.height) {
+      console.log('❌ Camera layout not initialized');
+      return;
+    }
+
+    // Show focus indicator
+    setFocusPoint({ x: locationX, y: locationY });
+    
+    // Animate focus indicator
+    focusFadeAnim.setValue(1);
+    Animated.timing(focusFadeAnim, {
+      toValue: 0,
+      duration: 1500,
+      useNativeDriver: true,
+    }).start(() => {
+      setFocusPoint(null);
+    });
+
+    // Focus camera with normalized coordinates (0-1 range)
+    if (camera.current) {
+      try {
+        const normalizedX = locationX / cameraLayout.width;
+        const normalizedY = locationY / cameraLayout.height;
+        
+        console.log('📸 Recording - Focusing at:', {
+          pixel: { x: locationX, y: locationY },
+          normalized: { x: normalizedX.toFixed(2), y: normalizedY.toFixed(2) },
+          layout: cameraLayout,
+        });
+
+        await camera.current.focus({
+          x: normalizedX,
+          y: normalizedY,
+        });
+        
+        console.log('✅ Focus successful');
+      } catch (error) {
+        console.error('❌ Focus error:', error);
+      }
+    } else {
+      console.log('❌ Camera ref not available');
+    }
+  };
+
   const handleVideoSave = async (videoPath: string) => {
     try {
       const timestamp = new Date().getTime();
@@ -560,18 +635,44 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
 
   return (
     <View style={styles.container}>
-      <Camera
-        ref={camera}
-        style={styles.camera}
-        device={device}
-        isActive={true}
-        video={true}
-        audio={true}
-        format={format}
-        zoom={zoom}
-      />
+      <Pressable 
+        style={StyleSheet.absoluteFill} 
+        onPress={handleTapToFocus}
+        onLayout={handleCameraLayout}
+      >
+        <Camera
+          ref={camera}
+          style={styles.camera}
+          device={device}
+          isActive={true}
+          video={true}
+          audio={true}
+          format={format}
+          fps={fps}
+          zoom={zoom}
+          videoHdr={hdrEnabled}
+          photoHdr={photoHdrEnabled}
+          exposure={settings.camera.exposureMode === 'manual' ? settings.camera.exposure : undefined}
+          // Note: Direct ISO control is not supported in react-native-vision-camera v4.7.3
+          // The exposure prop adjusts both ISO and exposure duration automatically
+        />
+        
+        {/* Focus Indicator */}
+        {focusPoint && settings.camera.tapToFocusEnabled && (
+          <Animated.View
+            style={[
+              styles.focusIndicator,
+              {
+                left: focusPoint.x - 40,
+                top: focusPoint.y - 40,
+                opacity: focusFadeAnim,
+              },
+            ]}
+          />
+        )}
+      </Pressable>
 
-      <View style={styles.overlay}>
+      <View style={styles.overlay} pointerEvents="box-none">
         {isRecording && (
           <View style={styles.recordingBadge}>
             <Animated.View style={[styles.recordingDot, { transform: [{ scale: pulseAnim }] }]} />
@@ -611,13 +712,15 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
 
           <View style={styles.infoCard}>
             <Text style={styles.infoLabel}>FPS</Text>
-            <Text style={styles.infoValue}>{settings.frameRate.fps}</Text>
+            <Text style={styles.infoValue}>{fps}</Text>
           </View>
 
-          <View style={styles.hdrBadge}>
-            <Text style={styles.hdrIcon}>☀</Text>
-            <Text style={styles.hdrText}>HDR ON</Text>
-          </View>
+          {hdrEnabled && (
+            <View style={styles.hdrBadge}>
+              <Text style={styles.hdrIcon}>✨</Text>
+              <Text style={styles.hdrText}>HDR</Text>
+            </View>
+          )}
         </View>
 
         <View style={styles.bottomControls}>
@@ -878,6 +981,19 @@ const styles = StyleSheet.create({
   },
   hiddenDataCollection: {
     display: 'none',
+  },
+  focusIndicator: {
+    position: 'absolute',
+    width: 80,
+    height: 80,
+    borderWidth: 2,
+    borderColor: '#FFF',
+    borderRadius: 40,
+    backgroundColor: 'transparent',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 4,
   },
 });
 

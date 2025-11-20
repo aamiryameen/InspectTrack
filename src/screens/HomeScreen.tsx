@@ -2,18 +2,26 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
-  TouchableOpacity,
   StyleSheet,
   StatusBar,
   ScrollView,
-  Switch,
   ActivityIndicator,
   Modal,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Camera, useCameraDevice, useCameraFormat } from 'react-native-vision-camera';
-import Slider from '@react-native-community/slider';
 import { loadSettings, saveSettings, RecordingSettings, defaultSettings } from '../utils/settingsUtils';
+import {
+  CameraPreview,
+  ExposureSetting,
+  ISOSetting,
+  HDRSetting,
+  FocusSetting,
+  WhiteBalanceSetting,
+  LensSetting,
+  ResolutionSetting,
+  FrameRateSetting,
+} from './HomeScreen/components';
 
 type RootStackParamList = {
   Home: undefined;
@@ -50,11 +58,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [isoMode, setIsoMode] = useState<'auto' | 'manual'>('manual');
   const [iso, setIso] = useState(100);
   const [hdr, setHdr] = useState(false);
-  const [focusMode, setFocusMode] = useState<'auto' | 'manual'>('manual');
-  const [focus, setFocus] = useState(0.5);
-  const [whiteBalanceMode, setWhiteBalanceMode] = useState<'auto' | 'manual'>('manual');
-  const [whiteBalance, setWhiteBalance] = useState(5000);
+  const [tapToFocusEnabled, setTapToFocusEnabled] = useState(true);
   const [zoom, setZoom] = useState(1);
+  const [selectedResolution, setSelectedResolution] = useState<'720p' | '1080p' | '4K'>('1080p');
+  const [selectedFrameRate, setSelectedFrameRate] = useState(30);
 
   const [selectedLens, setSelectedLens] = useState('1x');
   const [lensExpanded, setLensExpanded] = useState(false);
@@ -65,7 +72,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const resolutionOptions: Array<'720p' | '1080p' | '4K'> = ['720p', '1080p', '4K'];
   const frameRateOptions = [24, 30, 60];
 
-  const [currentHp, setCurrentHp] = useState();
   const getResolutionDimensions = (resolution: '720p' | '1080p' | '4K'): { width: number; height: number } => {
     switch (resolution) {
       case '720p':
@@ -96,15 +102,49 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
   const resolution = getResolutionDimensions(settings.video.resolution);
   
+  // Select camera format based on resolution and fps
   const format = useCameraFormat(device, [
     { videoResolution: resolution },
     { fps: settings.frameRate.fps }
   ]);
 
+  // Debug: Log all available formats to understand HDR support
+  useEffect(() => {
+    if (device?.formats) {
+      console.log('📸 Total available formats:', device.formats.length);
+      const hdrFormats = device.formats.filter(f => f.supportsVideoHdr || f.supportsPhotoHdr);
+      console.log('📸 HDR-capable formats:', hdrFormats.length);
+      
+      if (hdrFormats.length > 0) {
+        console.log('📸 Sample HDR formats:');
+        hdrFormats.slice(0, 3).forEach((f, i) => {
+          console.log(`  ${i + 1}. ${f.videoWidth}x${f.videoHeight} @ ${f.minFps}-${f.maxFps}fps - Video HDR: ${f.supportsVideoHdr}, Photo HDR: ${f.supportsPhotoHdr}`);
+        });
+      } else {
+        console.log('⚠️ No HDR-capable formats found on this device');
+      }
+    }
+  }, [device]);
+
   useEffect(() => {
     const initializeSettings = async () => {
       const loadedSettings = await loadSettings();
       setSettings(loadedSettings);
+      
+      // Load camera settings
+      if (loadedSettings.camera) {
+        setExposureMode(loadedSettings.camera.exposureMode);
+        setExposure(loadedSettings.camera.exposure);
+        setIsoMode(loadedSettings.camera.isoMode);
+        setIso(loadedSettings.camera.iso);
+        setHdr(loadedSettings.camera.hdr || false);
+        setTapToFocusEnabled(loadedSettings.camera.tapToFocusEnabled ?? true);
+      }
+      
+      // Load video/frame rate settings
+      setSelectedResolution(loadedSettings.video.resolution);
+      setSelectedFrameRate(loadedSettings.frameRate.fps);
+      
       setSelectedLens('1x');
       setZoom(1);
       setIsLoadingSettings(false);
@@ -122,8 +162,50 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   };
 
   const startRecording = () => {
+    // Sync all current settings before navigation
+    const currentSettings: RecordingSettings = {
+      ...settings,
+      camera: {
+        ...settings.camera,
+        exposureMode,
+        exposure,
+        isoMode,
+        iso,
+        hdr,
+        tapToFocusEnabled,
+      },
+      video: {
+        ...settings.video,
+        resolution: settings.video.resolution,
+      },
+      frameRate: {
+        ...settings.frameRate,
+        fps: settings.frameRate.fps,
+      },
+    };
+
+    console.log('🎬 Starting Recording with Settings:', {
+      camera: {
+        exposureMode,
+        exposure,
+        isoMode,
+        iso,
+        hdr,
+        tapToFocusEnabled,
+      },
+      video: {
+        resolution: currentSettings.video.resolution,
+        codec: currentSettings.video.codec,
+      },
+      frameRate: {
+        fps: currentSettings.frameRate.fps,
+      },
+      zoom,
+      lens: selectedLens,
+    });
+
     navigation.navigate('Recording', {
-      settings,
+      settings: currentSettings,
       zoom,
     });
   };
@@ -160,308 +242,182 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     setFrameRateExpanded(false);
   };
 
-  const SettingRow = ({
-    icon,
-    label,
-    color,
-    children
-  }: {
-    icon: string;
-    label: string;
-    color: string;
-    children: React.ReactNode;
-  }) => (
-    <View style={styles.settingRow}>
-      <View style={styles.settingLeft}>
-        <View style={[styles.iconCircle, { backgroundColor: color }]}>
-          <Text style={styles.iconText}>{icon}</Text>
-        </View>
-        <Text style={styles.settingLabel}>{label}</Text>
-      </View>
-      {children}
-    </View>
-  );
+  const handleExposureModeChange = async (mode: 'auto' | 'manual') => {
+    setExposureMode(mode);
+    const newSettings = {
+      ...settings,
+      camera: {
+        ...settings.camera,
+        exposureMode: mode,
+      },
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+  };
 
-  const AutoManualToggle = ({
-    mode,
-    onToggle
-  }: {
-    mode: 'auto' | 'manual';
-    onToggle: (mode: 'auto' | 'manual') => void;
-  }) => (
-    <View style={styles.toggleContainer}>
-      <TouchableOpacity
-        style={[styles.toggleButton, mode === 'auto' && styles.toggleButtonActive]}
-        onPress={() => onToggle('auto')}
-      >
-        <Text style={[styles.toggleButtonText, mode === 'auto' && styles.toggleButtonTextActive]}>Auto</Text>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={[styles.toggleButton, mode === 'manual' && styles.toggleButtonActive]}
-        onPress={() => onToggle('manual')}
-      >
-        <Text style={[styles.toggleButtonText, mode === 'manual' && styles.toggleButtonTextActive]}>Manual</Text>
-      </TouchableOpacity>
-    </View>
-  );
+  const handleExposureChange = async (value: number) => {
+    setExposure(value);
+    const newSettings = {
+      ...settings,
+      camera: {
+        ...settings.camera,
+        exposure: value,
+      },
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+  };
+
+  const handleIsoModeChange = async (mode: 'auto' | 'manual') => {
+    setIsoMode(mode);
+    const newSettings = {
+      ...settings,
+      camera: {
+        ...settings.camera,
+        isoMode: mode,
+      },
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+  };
+
+  const handleIsoChange = async (value: number) => {
+    setIso(value);
+    const newSettings = {
+      ...settings,
+      camera: {
+        ...settings.camera,
+        iso: value,
+      },
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+  };
+
+  const handleHdrToggle = async (value: boolean) => {
+    setHdr(value);
+    const newSettings = {
+      ...settings,
+      camera: {
+        ...settings.camera,
+        hdr: value,
+      },
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+  };
+
+  const handleTapToFocusToggle = async (value: boolean) => {
+    setTapToFocusEnabled(value);
+    const newSettings = {
+      ...settings,
+      camera: {
+        ...settings.camera,
+        tapToFocusEnabled: value,
+      },
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+  };
 
   if (isLoadingSettings) {
     return (
-      <View style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#14B8A6" />
-          <Text style={styles.loadingText}>Loading settings...</Text>
-        </View>
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#0EA5E9" />
+        <Text style={styles.loadingText}>Loading settings...</Text>
       </View>
     );
   }
 
   if (!device) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.loadingText}>Loading camera...</Text>
+      <View style={styles.loadingContainer}>
+        <Text style={styles.errorText}>Camera device not found</Text>
       </View>
     );
   }
+
+
+  
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f5f5f5" />
 
+      <View style={styles.header}>
+
+      
+      </View>
     
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        <View style={styles.previewSection}>
-          <Text style={styles.previewLabel}>Camera Preview</Text>
-          <View style={styles.cameraContainer}>
-            <Camera
-              key={`${settings.video.resolution}-${settings.frameRate.fps}`}
-              ref={camera}
-              style={styles.camera}
-              device={device}
-              format={format}
-              isActive={true}
-              photo={true}
-              video={true}
-              zoom={zoom}
-            />
-            <View style={styles.cameraOverlay}>
-              <Text style={styles.cameraStats}>{settings.video.resolution} • {settings.frameRate.fps}Fps • {selectedLens}</Text>
-            </View>
-          </View>
-
-          <TouchableOpacity style={styles.recordButton} onPress={startRecording}>
-            <Text style={styles.recordButtonText}>Start Recording</Text>
-          </TouchableOpacity>
-        </View>
+        <CameraPreview
+          cameraRef={camera}
+          device={device}
+          format={format}
+          settings={settings}
+          zoom={zoom}
+          selectedLens={selectedLens}
+          hdr={hdr}
+          onStartRecording={startRecording}
+        />
 
         <View style={styles.settingsContainer}>
           <Text style={styles.sectionTitle}>Camera Settings</Text>
 
-          <View style={styles.settingCard}>
-            <SettingRow icon="☀️" label="Exposure" color="#F59E0B">
-              <AutoManualToggle mode={exposureMode} onToggle={setExposureMode} />
-            </SettingRow>
-            {exposureMode === 'manual' && (
-              <>
-                <Slider
-                  style={styles.slider}
-                  minimumValue={-2}
-                  maximumValue={2}
-                  value={exposure}
-                  onValueChange={setExposure}
-                  minimumTrackTintColor="#0EA5E9"
-                  maximumTrackTintColor="#E5E7EB"
-                  thumbTintColor="#0EA5E9"
-                />
-                <View style={styles.sliderLabels}>
-                  <Text style={styles.sliderLabel}>Low</Text>
-                  <Text style={styles.sliderLabel}>High</Text>
-                </View>
-              </>
-            )}
-          </View>
+          <ExposureSetting
+            exposureMode={exposureMode}
+            exposure={exposure}
+            device={device}
+            onModeChange={handleExposureModeChange}
+            onExposureChange={handleExposureChange}
+          />
 
-          <View style={styles.settingCard}>
-            <SettingRow icon="◉" label="ISO" color="#8B5CF6">
-              <AutoManualToggle mode={isoMode} onToggle={setIsoMode} />
-            </SettingRow>
-            {isoMode === 'manual' && (
-              <>
-                <Slider
-                  style={styles.slider}
-                  minimumValue={100}
-                  maximumValue={3200}
-                  value={iso}
-                  onValueChange={setIso}
-                  minimumTrackTintColor="#0EA5E9"
-                  maximumTrackTintColor="#E5E7EB"
-                  thumbTintColor="#0EA5E9"
-                />
-                <View style={styles.sliderLabels}>
-                  <Text style={styles.sliderLabel}>Less Sensitivity</Text>
-                  <Text style={styles.sliderLabel}>More Sensitivity</Text>
-                </View>
-              </>
-            )}
-          </View>
+          <ISOSetting
+            isoMode={isoMode}
+            iso={iso}
+            format={format}
+            onModeChange={handleIsoModeChange}
+            onIsoChange={handleIsoChange}
+          />
 
-          <View style={styles.settingCard}>
-            <SettingRow icon="HDR" label="HDR" color="#10B981">
-              <Switch
-                value={hdr}
-                onValueChange={setHdr}
-                trackColor={{ false: '#E5E7EB', true: '#14B8A6' }}
-                thumbColor="#fff"
-              />
-            </SettingRow>
-          </View>
+          <HDRSetting hdr={hdr} format={format} onToggle={handleHdrToggle} />
 
-          <View style={styles.settingCard}>
-            <SettingRow icon="⊕" label="Lens" color="#84CC16">
-              <TouchableOpacity 
-                style={styles.dropdown}
-                onPress={() => setLensExpanded(!lensExpanded)}
-              >
-                <Text style={styles.dropdownText}>{selectedLens}</Text>
-                <Text style={styles.dropdownArrow}>{lensExpanded ? '▲' : '▼'}</Text>
-              </TouchableOpacity>
-            </SettingRow>
-            {lensExpanded && (
-              <View style={styles.dropdownOptions}>
-                {lensOptions.map((option) => (
-                  <TouchableOpacity
-                    key={option}
-                    style={[
-                      styles.dropdownOption,
-                      selectedLens === option && styles.dropdownOptionSelected
-                    ]}
-                    onPress={() => handleLensChange(option)}
-                  >
-                    <Text style={[
-                      styles.dropdownOptionText,
-                      selectedLens === option && styles.dropdownOptionTextSelected
-                    ]}>
-                      {option}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-          </View>
+          <LensSetting
+            selectedLens={selectedLens}
+            lensOptions={lensOptions}
+            isExpanded={lensExpanded}
+            device={device}
+            format={format}
+            zoom={zoom}
+            onToggleExpand={() => setLensExpanded(!lensExpanded)}
+            onSelectLens={handleLensChange}
+          />
 
-          <View style={styles.settingCard}>
-            <SettingRow icon="▦" label="Resolution" color="#84CC16">
-              <TouchableOpacity 
-                style={styles.dropdown}
-                onPress={() => setResolutionExpanded(!resolutionExpanded)}
-              >
-                <Text style={styles.dropdownText}>{settings.video.resolution}</Text>
-                <Text style={styles.dropdownArrow}>{resolutionExpanded ? '▲' : '▼'}</Text>
-              </TouchableOpacity>
-            </SettingRow>
-            {resolutionExpanded && (
-              <View style={styles.dropdownOptions}>
-                {resolutionOptions.map((option) => (
-                  <TouchableOpacity
-                    key={option}
-                    style={[
-                      styles.dropdownOption,
-                      settings.video.resolution === option && styles.dropdownOptionSelected
-                    ]}
-                    onPress={() => handleResolutionChange(option)}
-                  >
-                    <Text style={[
-                      styles.dropdownOptionText,
-                      settings.video.resolution === option && styles.dropdownOptionTextSelected
-                    ]}>
-                      {option}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-          </View>
+          <ResolutionSetting
+            resolution={settings.video.resolution}
+            resolutionOptions={resolutionOptions}
+            isExpanded={resolutionExpanded}
+            format={format}
+            onToggleExpand={() => setResolutionExpanded(!resolutionExpanded)}
+            onSelectResolution={handleResolutionChange}
+          />
 
-          <View style={styles.settingCard}>
-            <SettingRow icon="▦" label="Frame Rate" color="#84CC16">
-              <TouchableOpacity 
-                style={styles.dropdown}
-                onPress={() => setFrameRateExpanded(!frameRateExpanded)}
-              >
-                <Text style={styles.dropdownText}>{settings.frameRate.fps}fps</Text>
-                <Text style={styles.dropdownArrow}>{frameRateExpanded ? '▲' : '▼'}</Text>
-              </TouchableOpacity>
-            </SettingRow>
-            {frameRateExpanded && (
-              <View style={styles.dropdownOptions}>
-                {frameRateOptions.map((option) => (
-                  <TouchableOpacity
-                    key={option}
-                    style={[
-                      styles.dropdownOption,
-                      settings.frameRate.fps === option && styles.dropdownOptionSelected
-                    ]}
-                    onPress={() => handleFrameRateChange(option)}
-                  >
-                    <Text style={[
-                      styles.dropdownOptionText,
-                      settings.frameRate.fps === option && styles.dropdownOptionTextSelected
-                    ]}>
-                      {option}fps
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-          </View>
+          <FrameRateSetting
+            frameRate={settings.frameRate.fps}
+            frameRateOptions={frameRateOptions}
+            isExpanded={frameRateExpanded}
+            format={format}
+            onToggleExpand={() => setFrameRateExpanded(!frameRateExpanded)}
+            onSelectFrameRate={handleFrameRateChange}
+          />
 
-          <View style={styles.settingCard}>
-            <SettingRow icon="◎" label="Focus" color="#3B82F6">
-              <AutoManualToggle mode={focusMode} onToggle={setFocusMode} />
-            </SettingRow>
-            {focusMode === 'manual' && (
-              <>
-                <Slider
-                  style={styles.slider}
-                  minimumValue={0}
-                  maximumValue={1}
-                  value={focus}
-                  onValueChange={setFocus}
-                  minimumTrackTintColor="#0EA5E9"
-                  maximumTrackTintColor="#E5E7EB"
-                  thumbTintColor="#0EA5E9"
-                />
-                <View style={styles.sliderLabels}>
-                  <Text style={styles.sliderLabel}>Near</Text>
-                  <Text style={styles.sliderLabel}>Far</Text>
-                </View>
-              </>
-            )}
-          </View>
+          <FocusSetting
+            tapToFocusEnabled={tapToFocusEnabled}
+            device={device}
+            onToggle={handleTapToFocusToggle}
+          />
 
-          <View style={styles.settingCard}>
-            <SettingRow icon="◐" label="White Balance" color="#EC4899">
-              <AutoManualToggle mode={whiteBalanceMode} onToggle={setWhiteBalanceMode} />
-            </SettingRow>
-            {whiteBalanceMode === 'manual' && (
-              <>
-                <Slider
-                  style={styles.slider}
-                  minimumValue={2000}
-                  maximumValue={8000}
-                  value={whiteBalance}
-                  onValueChange={setWhiteBalance}
-                  minimumTrackTintColor="#0EA5E9"
-                  maximumTrackTintColor="#E5E7EB"
-                  thumbTintColor="#0EA5E9"
-                />
-                <View style={styles.sliderLabels}>
-                  <Text style={styles.sliderLabel}>Warm Temperature</Text>
-                  <Text style={styles.sliderLabel}>Cold Temperature</Text>
-                </View>
-              </>
-            )}
-          </View>
+          <WhiteBalanceSetting />
         </View>
       </ScrollView>
     </View>
@@ -485,193 +441,37 @@ const styles = StyleSheet.create({
   header: {
     alignItems: 'center',
     paddingTop: 50,
-    paddingBottom: 10,
-    backgroundColor: '#f5f5f5',
+    paddingBottom: 20,
+    backgroundColor: '#fff',
   },
-  logoText: {
-    fontSize: 40,
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
   },
   loadingText: {
-    color: '#000',
     fontSize: 16,
-    textAlign: 'center',
-    marginTop: 100,
+    color: '#6B7280',
   },
-  previewSection: {
-    paddingHorizontal: 20,
-    marginTop: 10
-  },
-  previewLabel: {
-    fontSize: 20,
-    color: '#000',
-    marginBottom: 8,
-  },
-  cameraContainer: {
-    height: 200,
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: '#000',
-    position: 'relative',
-  },
-  camera: {
-    flex: 1,
-  },
-  cameraOverlay: {
-    position: 'absolute',
-    top: 12,
-    left: 12,
-    backgroundColor: 'rgba(59, 130, 246, 0.8)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  cameraStats: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  recordButton: {
-    backgroundColor: '#000',
-    paddingVertical: 13,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 12,
-    width: '80%',
-    alignSelf: 'center',
-  },
-  recordButtonText: {
-    color: '#fff',
+  errorText: {
     fontSize: 16,
-    fontWeight: '600',
+    color: '#EF4444',
   },
   settingsContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 30,
+    paddingHorizontal: 16,
+    paddingBottom: 24,
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#000',
+    fontWeight: '700',
+    color: '#1F2937',
     marginBottom: 16,
-    marginTop: 20,
-  },
-  settingCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-  },
-  settingRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 0,
-  },
-  settingLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  iconText: {
-    fontSize: 16,
-  },
-  settingLabel: {
-    fontSize: 14,
-    color: '#000',
-    fontWeight: '500',
-  },
-  toggleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    padding: 4,
-  },
-  toggleButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 6,
-    backgroundColor: 'transparent',
-  },
-  toggleButtonActive: {
-    backgroundColor: '#14B8A6',
-  },
-  toggleButtonText: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '500',
-  },
-  toggleButtonTextActive: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  slider: {
-    width: '100%',
-    height: 40,
-    marginTop: 0,
-    marginBottom: 4,
-  },
-  sliderLabels: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 20,
-    paddingHorizontal: 8,
-  },
-  sliderLabel: {
-    fontSize: 11,
-    color: '#9CA3AF',
-  },
-  sliderLabelDisabled: {
-    color: '#D1D5DB',
-  },
-  dropdown: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    gap: 8,
-  },
-  dropdownText: {
-    fontSize: 11,
-    color: '#6B7280',
-  },
-  dropdownArrow: {
-    fontSize: 10,
-    color: '#9CA3AF',
-  },
-  dropdownOptions: {
-    marginTop: 12,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
-    padding: 4,
-  },
-  dropdownOption: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 6,
-    marginVertical: 2,
-  },
-  dropdownOptionSelected: {
-    backgroundColor: '#14B8A6',
-  },
-  dropdownOptionText: {
-    fontSize: 13,
-    color: '#374151',
-    fontWeight: '500',
-  },
-  dropdownOptionTextSelected: {
-    color: '#fff',
-    fontWeight: '600',
+    marginTop: 8,
   },
 });
 

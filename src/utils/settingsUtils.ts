@@ -11,6 +11,14 @@ export interface RecordingSettings {
     codec: string;
     bitrate: number;
   };
+  camera: {
+    exposureMode: 'auto' | 'manual';
+    exposure: number;
+    isoMode: 'auto' | 'manual';
+    iso: number;
+    hdr: boolean;
+    tapToFocusEnabled: boolean;
+  };
   gps: {
     accuracy: 'low' | 'high';
     updateInterval: number;
@@ -38,6 +46,14 @@ export const defaultSettings: RecordingSettings = {
     resolution: '1080p',
     codec: 'H.264',
     bitrate: 8,
+  },
+  camera: {
+    exposureMode: 'manual',
+    exposure: 0,
+    isoMode: 'manual',
+    iso: 100,
+    hdr: false,
+    tapToFocusEnabled: true,
   },
   gps: {
     accuracy: 'high',
