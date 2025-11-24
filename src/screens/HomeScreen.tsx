@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Camera, useCameraDevice, useCameraFormat } from 'react-native-vision-camera';
+import Orientation from 'react-native-orientation-locker';
 import { loadSettings, saveSettings, RecordingSettings, defaultSettings } from '../utils/settingsUtils';
 import {
   CameraPreview,
@@ -40,6 +41,7 @@ type RootStackParamList = {
     highestMemory: number;
     videoPath: string;
   };
+  DownloadFile: undefined;
 };
 
 type HomeScreenProps = {
@@ -152,6 +154,15 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
     initializeSettings();
     requestCameraPermission();
+  }, []);
+
+  // Lock orientation to portrait mode
+  useEffect(() => {
+    Orientation.lockToPortrait();
+    
+    return () => {
+      Orientation.unlockAllOrientations();
+    };
   }, []);
 
   const requestCameraPermission = async () => {
@@ -320,6 +331,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     await saveSettings(newSettings);
   };
 
+  const navigateToDownloadFile = () => {
+    navigation.navigate('DownloadFile');
+  };
+
   if (isLoadingSettings) {
     return (
       <View style={styles.loadingContainer}>
@@ -359,6 +374,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           selectedLens={selectedLens}
           hdr={hdr}
           onStartRecording={startRecording}
+          onDownloadFile={navigateToDownloadFile}
         />
 
         <View style={styles.settingsContainer}>

@@ -5,6 +5,7 @@ import { Provider } from 'react-redux';
 import HomeScreen from './src/screens/HomeScreen';
 import RecordingScreen from './src/screens/RecordingScreen';
 import SummaryScreen from './src/screens/SummaryScreen';
+import DownloadFileScreen from './src/screens/DownloadFileScreen';
 import { store } from './src/store/store';
 import { RecordingSettings } from './src/utils/settingsUtils';
 
@@ -25,6 +26,7 @@ export type RootStackParamList = {
     highestMemory: number;
     videoPath: string;
   };
+  DownloadFile: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -62,6 +64,14 @@ const App = () => {
             component={SummaryScreen}
             options={{
               title: 'Summary',
+              headerShown: true,
+            }}
+          />
+          <Stack.Screen
+            name="DownloadFile"
+            component={DownloadFileScreen}
+            options={{
+              title: 'Download Files',
               headerShown: true,
             }}
           />

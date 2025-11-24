@@ -1,17 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Alert,
   Platform,
-  ActivityIndicator,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RecordingSettings } from '../utils/settingsUtils';
 import RNFS from 'react-native-fs';
+import Orientation from 'react-native-orientation-locker';
 
 type RootStackParamList = {
   Home: undefined;
@@ -29,6 +28,10 @@ type RootStackParamList = {
     avgMemory: number;
     highestMemory: number;
     videoPath: string;
+    gpsFilePath: string;
+    gyroscopeFilePath: string;
+    cameraSettingsFilePath: string;
+    settings: RecordingSettings;
   };
 };
 
@@ -45,87 +48,98 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
     avgMemory,
     highestMemory,
     videoPath,
+    gpsFilePath,
+    gyroscopeFilePath,
+    cameraSettingsFilePath,
+    settings,
   } = route.params;
 
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [gpsData, setGpsData] = useState<any>(null);
+  const [gyroscopeData, setGyroscopeData] = useState<any>(null);
+
+  // Lock orientation to portrait mode
+  useEffect(() => {
+    Orientation.lockToPortrait();
+    
+    return () => {
+      Orientation.unlockAllOrientations();
+    };
+  }, []);
+
+  useEffect(() => {
+    loadGPSData();
+    loadGyroscopeData();
+  }, []);
+
+  const loadGPSData = async () => {
+    try {
+      if (gpsFilePath) {
+        const fileExists = await RNFS.exists(gpsFilePath);
+        if (fileExists) {
+          const gpsContent = await RNFS.readFile(gpsFilePath, 'utf8');
+          const parsedGPSData = JSON.parse(gpsContent);
+          setGpsData(parsedGPSData);
+          console.log('GPS data loaded successfully');
+        }
+      }
+    } catch (error) {
+      console.error('Error loading GPS data:', error);
+    }
+  };
+
+  const loadGyroscopeData = async () => {
+    try {
+      if (gyroscopeFilePath) {
+        const fileExists = await RNFS.exists(gyroscopeFilePath);
+        if (fileExists) {
+          const gyroContent = await RNFS.readFile(gyroscopeFilePath, 'utf8');
+          const parsedGyroData = JSON.parse(gyroContent);
+          setGyroscopeData(parsedGyroData);
+          console.log('Gyroscope data loaded successfully');
+        }
+      }
+    } catch (error) {
+      console.error('Error loading Gyroscope data:', error);
+    }
+  };
 
   const formatDuration = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
-    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')} hrs`;
+    const secs = seconds % 60;
+    return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const downloadCollectionsJSON = async () => {
+  const formatUTCTimestamp = (timestamp: number): string => {
+    if (!timestamp) return 'N/A';
+    
     try {
-      setIsDownloading(true);
-
-      const timestamp = new Date().getTime();
-      const fileName = `collection_${timestamp}.json`;
-
-      const collectionData = {
-        collectionId: timestamp,
-        createdAt: new Date().toISOString(),
-        recording: {
-          startTime,
-          endTime,
-          duration: duration,
-          durationFormatted: formatDuration(duration),
-          videoPath,
-        },
-        location: {
-          distanceKm: parseFloat(distance.toFixed(2)),
-          distanceMiles: parseFloat((distance * 0.621371).toFixed(2)),
-        },
-        performance: {
-          cpu: {
-            average: avgCPU,
-            highest: highestCPU,
-            unit: 'percentage',
-          },
-          memory: {
-            average: parseFloat(avgMemory.toFixed(2)),
-            highest: parseFloat(highestMemory.toFixed(2)),
-            unit: 'GB',
-          },
-        },
-        metadata: {
-          platform: Platform.OS,
-          version: '1.0.0',
-          exportedAt: new Date().toISOString(),
-        },
-      };
-
-      const filePath = Platform.OS === 'ios'
-        ? `${RNFS.DocumentDirectoryPath}/${fileName}`
-        : `${RNFS.DownloadDirectoryPath}/${fileName}`;
-
-      await RNFS.writeFile(
-        filePath,
-        JSON.stringify(collectionData, null, 2),
-        'utf8'
-      );
-
-      setIsDownloading(false);
-
-      const folderName = Platform.OS === 'ios' ? 'Documents' : 'Downloads';
-
-      Alert.alert(
-        'Collection Exported',
-        `Your collection data has been successfully exported to ${folderName} folder.\n\nFile: ${fileName}`,
-        [
-          {
-            text: 'OK',
-            onPress: () => console.log('Collection JSON downloaded:', fileName),
-          },
-        ]
-      );
+      const date = new Date(timestamp);
+      
+      // Use Intl.DateTimeFormat for proper UTC conversion
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'UTC',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      });
+      
+      const parts = formatter.formatToParts(date);
+      const partValues: { [key: string]: string } = {};
+      
+      parts.forEach(({ type, value }) => {
+        partValues[type] = value;
+      });
+      
+      // Format: MM/DD/YYYY, HH:MM:SS (UTC)
+      return `${partValues.hour}:${partValues.minute}:${partValues.second}`;
     } catch (error) {
-      console.error('Error downloading collection JSON:', error);
-      setIsDownloading(false);
-      Alert.alert(
-        'Export Failed',
-        'Failed to export collection data. Please try again.'
-      );
+      console.error('Error formatting UTC timestamp:', error);
+      return 'Invalid Date';
     }
   };
 
@@ -138,10 +152,9 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
         <View style={styles.successIcon}>
           <Text style={styles.checkmark}>✓</Text>
         </View>
-
         <Text style={styles.title}>Collection Complete!</Text>
         <Text style={styles.subtitle}>
-          Your road patrol data has been saved successfully to the photo library.
+          Your road patrol data has been recorded and saved successfully.
         </Text>
 
         <View style={styles.statsGrid}>
@@ -149,35 +162,39 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
             <View style={styles.statCard}>
               <View style={styles.statHeader}>
                 <Text style={styles.statIcon}>🕐</Text>
-                <Text style={styles.statLabel}>Start Time</Text>
+                <Text style={styles.statLabel}>Start Time (UTC)</Text>
               </View>
-              <Text style={styles.statValue}>{startTime}</Text>
+              <Text style={styles.statValue}>
+                {gpsData?.recordingStartTime ? formatUTCTimestamp(gpsData.recordingStartTime) : 'Loading...'}
+              </Text>
             </View>
 
             <View style={styles.statCard}>
               <View style={styles.statHeader}>
                 <Text style={styles.statIcon}>🕐</Text>
-                <Text style={styles.statLabel}>End Time</Text>
+                <Text style={styles.statLabel}>End Time (UTC)</Text>
               </View>
-              <Text style={styles.statValue}>{endTime}</Text>
+              <Text style={styles.statValue}>
+                {gpsData?.recordingEndTime ? formatUTCTimestamp(gpsData.recordingEndTime) : 'Loading...'}
+              </Text>
             </View>
           </View>
 
           <View style={styles.statsRow}>
             <View style={styles.statCard}>
               <View style={styles.statHeader}>
-                <Text style={styles.statIcon}>↔</Text>
-                <Text style={styles.statLabel}>Distance</Text>
+                <Text style={styles.statIcon}>⏱</Text>
+                <Text style={styles.statLabel}>Video Duration</Text>
               </View>
-              <Text style={styles.statValue}>{distance.toFixed(1)} kms</Text>
+              <Text style={styles.statValue}>{formatDuration(duration)}</Text>
             </View>
 
             <View style={styles.statCard}>
               <View style={styles.statHeader}>
-                <Text style={styles.statIcon}>⏱</Text>
-                <Text style={styles.statLabel}>Duration</Text>
+                <Text style={styles.statIcon}>↔</Text>
+                <Text style={styles.statLabel}>Distance</Text>
               </View>
-              <Text style={styles.statValue}>{formatDuration(duration)}</Text>
+              <Text style={styles.statValue}>{distance.toFixed(2)} km</Text>
             </View>
           </View>
 
@@ -196,44 +213,24 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
           <View style={styles.statsRow}>
             <View style={styles.statCard}>
               <Text style={styles.statLabel}>Average Memory Load</Text>
-              <Text style={styles.statValue}>{avgMemory.toFixed(1)} GB</Text>
+              <Text style={styles.statValue}>{avgMemory.toFixed(2)} GB</Text>
             </View>
 
             <View style={styles.statCard}>
               <Text style={styles.statLabel}>Highest Memory Load</Text>
-              <Text style={styles.statValue}>{highestMemory.toFixed(1)} GB</Text>
+              <Text style={styles.statValue}>{highestMemory.toFixed(2)} GB</Text>
             </View>
           </View>
         </View>
 
-        <View style={styles.buttonsContainer}>
-          <TouchableOpacity
-            style={[
-              styles.viewCollectionsButton,
-              isDownloading && styles.buttonDisabled,
-            ]}
-            onPress={downloadCollectionsJSON}
-            disabled={isDownloading}
-          >
-            {isDownloading ? (
-              <View style={styles.buttonContent}>
-                <ActivityIndicator size="small" color="#14B8A6" />
-                <Text style={styles.viewCollectionsText}>DOWNLOADING...</Text>
-              </View>
-            ) : (
-              <Text style={styles.viewCollectionsText}>VIEW COLLECTIONS</Text>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.backToHomeButton}
-            onPress={() => {
-              navigation.navigate('Home');
-            }}
-          >
-            <Text style={styles.backToHomeText}>BACK TO HOME</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={styles.backToHomeButton}
+          onPress={() => {
+            navigation.navigate('Home');
+          }}
+        >
+          <Text style={styles.backToHomeText}>BACK TO HOME</Text>
+        </TouchableOpacity>
       </ScrollView>
     </View>
   );
@@ -311,48 +308,19 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   statValue: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     color: '#111827',
   },
-  buttonsContainer: {
-    flexDirection: 'row',
-    gap: 16,
-    marginTop: 30,
-    width: '100%',
-    maxWidth: 500,
-  },
-  viewCollectionsButton: {
-    flex: 1,
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#14B8A6',
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  viewCollectionsText: {
-    color: '#14B8A6',
-    fontSize: 14,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-  },
   backToHomeButton: {
-    flex: 1,
     backgroundColor: '#14B8A6',
     borderRadius: 12,
     paddingVertical: 16,
     paddingHorizontal: 24,
     alignItems: 'center',
+    marginTop: 16,
+    width: '100%',
+    maxWidth: 500,
   },
   backToHomeText: {
     color: '#FFF',

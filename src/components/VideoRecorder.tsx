@@ -44,6 +44,10 @@ type RootStackParamList = {
     avgMemory: number;
     highestMemory: number;
     videoPath: string;
+    gpsFilePath: string;
+    gyroscopeFilePath: string;
+    cameraSettingsFilePath: string;
+    settings: RecordingSettings;
   };
 };
 
@@ -71,10 +75,13 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const gyroSubscription = useRef<any>(null);
   const locationWatchId = useRef<number | null>(null);
-  const gpsDataRef = useRef<Array<{ timestamp: string; /* elapsedMs: string; */ latitude: number; longitude: number; accuracy?: number }>>([]);
+  const gpsDataRef = useRef<Array<{ timestamp: number; /* elapsedMs: string; */ latitude: number; longitude: number; accuracy?: number }>>([]);
   const gpsCollectionInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const gyroDataRef = useRef<Array<{ timestamp: number; x: number; y: number; z: number }>>([]);
+  const gyroCollectionInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const systemMonitoringInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingStartTime = useRef<number>(0);
+  const recordingEndTime = useRef<number>(0);
   const previousGyroData = useRef({ x: 0, y: 0, z: 0 });
   const pulseAnim = useRef(new Animated.Value(1)).current;
   
@@ -103,6 +110,16 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const { hasPermission: hasCameraPermission, requestPermission: requestCameraPermission } = useCameraPermission();
   const { hasPermission: hasMicrophonePermission, requestPermission: requestMicrophonePermission } = useMicrophonePermission();
 
+  // Update zoom when prop changes
+  useEffect(() => {
+    setZoom(initialZoom);
+  }, [initialZoom]);
+
+  // Update settings when prop changes
+  useEffect(() => {
+    setSettings(initialSettings);
+  }, [initialSettings]);
+
   useEffect(() => {
     Orientation.lockToLandscape();
     checkPermissions();
@@ -124,6 +141,9 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       }
       if (gpsCollectionInterval.current) {
         clearInterval(gpsCollectionInterval.current);
+      }
+      if (gyroCollectionInterval.current) {
+        clearInterval(gyroCollectionInterval.current);
       }
       if (systemMonitoringInterval.current) {
         clearInterval(systemMonitoringInterval.current);
@@ -213,6 +233,16 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     });
   };
 
+  const getUTCTimestamp = (): number => {
+    try {
+      // Get current time as Unix timestamp in milliseconds (UTC)
+      return Date.now();
+    } catch (error) {
+      console.error('Error getting UTC timestamp:', error);
+      return Date.now();
+    }
+  };
+
   const startLocationTracking = async () => {
     if (Platform.OS === 'android') {
       const granted = await PermissionsAndroid.request(
@@ -239,11 +269,10 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   };
 
   const startGPSDataCollection = () => {
-    if (!settings.metadata.gpsSync) return;
-
     gpsDataRef.current = [];
-    recordingStartTime.current = Date.now();
     totalDistanceRef.current = 0;
+    
+    if (!settings.metadata.gpsSync) return;
 
     const samplingInterval = settings.gps.updateInterval * 1000;
     const enableHighAccuracy = settings.gps.accuracy === 'high';
@@ -251,29 +280,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     gpsCollectionInterval.current = setInterval(() => {
       Geolocation.getCurrentPosition(
         (position) => {
-          const elapsedMilliseconds = Date.now() - recordingStartTime.current;
-          
-          // Convert to Eastern Time (America/New_York timezone) in date and time format
-          const currentTime = new Date();
-          const etcTimestamp = currentTime.toLocaleString('en-US', {
-            timeZone: 'America/New_York',
-            year: 'numeric',
-            month: '2-digit',
-            day: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: false
-          });
-
-          // Convert elapsedMs to time format (HH:MM:SS.mmm)
-          // const totalSeconds = Math.floor(elapsedMilliseconds / 1000);
-          // const hours = Math.floor(totalSeconds / 3600);
-          // const minutes = Math.floor((totalSeconds % 3600) / 60);
-          // const seconds = totalSeconds % 60;
-          // const milliseconds = elapsedMilliseconds % 1000;
-          // const elapsedMsFormatted = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}.${milliseconds.toString().padStart(3, '0')}`;
-
+          const utcTimestamp = getUTCTimestamp();
           const { latitude, longitude, accuracy } = position.coords;
 
           if (gpsDataRef.current.length > 0) {
@@ -288,8 +295,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
           }
 
           gpsDataRef.current.push({
-            timestamp: etcTimestamp, // Eastern Time in MM/DD/YYYY, HH:MM:SS format
-            // elapsedMs: elapsedMsFormatted, // Elapsed time since recording started in HH:MM:SS.mmm format
+            timestamp: utcTimestamp, 
             latitude,
             longitude,
             accuracy,
@@ -320,24 +326,73 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     }
   };
 
+  const startGyroscopeDataCollection = () => {
+    gyroDataRef.current = [];
+
+    const samplingInterval = settings.gps.updateInterval * 1000; // Use same interval as GPS
+
+    gyroCollectionInterval.current = setInterval(() => {
+      const utcTimestamp = getUTCTimestamp();
+
+      gyroDataRef.current.push({
+        timestamp: utcTimestamp,
+        x: previousGyroData.current.x,
+        y: previousGyroData.current.y,
+        z: previousGyroData.current.z,
+      });
+    }, samplingInterval);
+  };
+
+  const stopGyroscopeDataCollection = () => {
+    if (gyroCollectionInterval.current) {
+      clearInterval(gyroCollectionInterval.current);
+      gyroCollectionInterval.current = null;
+    }
+  };
+
+  const saveGyroscopeData = async (videoFileName: string) => {
+    try {
+      const gyroFileName = videoFileName.replace('.mp4', '_gyroscope.json');
+
+      // Recording start and end times as UTC Unix timestamps
+      const recordingStartTimeFormatted = recordingStartTime.current;
+      const recordingEndTimeFormatted = recordingEndTime.current;
+
+      const gyroscopeData = {
+        recordingStartTime: recordingStartTimeFormatted,
+        recordingEndTime: recordingEndTimeFormatted,
+        totalFrames: gyroDataRef.current.length,
+        frameRate: settings.frameRate.fps,
+        videoResolution: settings.video.resolution,
+        timestampFormat: settings.metadata.timestampFormat,
+        gyroscopePoints: gyroDataRef.current,
+      };
+
+      const gyroFilePath = Platform.OS === 'ios'
+        ? `${RNFS.DocumentDirectoryPath}/${gyroFileName}`
+        : `${RNFS.DownloadDirectoryPath}/${gyroFileName}`;
+
+      await RNFS.writeFile(gyroFilePath, JSON.stringify(gyroscopeData, null, 2), 'utf8');
+      // removed: console.log(`Gyroscope data saved: ${gyroFileName} with ${gyroDataRef.current.length} points`);
+
+      return gyroFileName;
+    } catch (error) {
+      console.error('Error saving gyroscope data:', error);
+      return null;
+    }
+  };
+
   const saveGPSData = async (videoFileName: string) => {
     try {
       const gpsFileName = videoFileName.replace('.mp4', '_gps.json');
 
-      const startTimeDate = new Date(recordingStartTime.current);
-      const recordingStartTimeFormatted = startTimeDate.toLocaleString('en-US', {
-        timeZone: 'America/New_York',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      });
+      // Recording start and end times as UTC Unix timestamps
+      const recordingStartTimeFormatted = recordingStartTime.current;
+      const recordingEndTimeFormatted = recordingEndTime.current;
 
       const gpsData = {
         recordingStartTime: recordingStartTimeFormatted,
+        recordingEndTime: recordingEndTimeFormatted,
         totalFrames: gpsDataRef.current.length,
         frameRate: settings.frameRate.fps,
         videoResolution: settings.video.resolution,
@@ -350,11 +405,46 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         : `${RNFS.DownloadDirectoryPath}/${gpsFileName}`;
 
       await RNFS.writeFile(gpsFilePath, JSON.stringify(gpsData, null, 2), 'utf8');
-      console.log(`GPS data saved: ${gpsFileName} with ${gpsDataRef.current.length} points`);
+      // removed: console.log(`GPS data saved: ${gpsFileName} with ${gpsDataRef.current.length} points`);
 
       return gpsFileName;
     } catch (error) {
       console.error('Error saving GPS data:', error);
+      return null;
+    }
+  };
+
+  const saveCameraSettings = async (videoFileName: string) => {
+    try {
+      const settingsFileName = videoFileName.replace('.mp4', '_camera_settings.json');
+
+      // Recording start and end times as UTC Unix timestamps
+      const recordingStartTimeFormatted = recordingStartTime.current;
+      const recordingEndTimeFormatted = recordingEndTime.current;
+
+      const cameraSettingsData = {
+        recordingStartTime: recordingStartTimeFormatted,
+        recordingEndTime: recordingEndTimeFormatted,
+        fps: settings.frameRate.fps,
+        resolution: settings.video.resolution,
+        exposure: settings.camera.exposure,
+        iso: settings.camera.iso,
+        hdr: settings.camera.hdr,
+        tapToFocusEnabled: settings.camera.tapToFocusEnabled,
+        zoom: zoom,
+        lens: `${zoom}x`,
+      };
+
+      const settingsFilePath = Platform.OS === 'ios'
+        ? `${RNFS.DocumentDirectoryPath}/${settingsFileName}`
+        : `${RNFS.DownloadDirectoryPath}/${settingsFileName}`;
+
+      await RNFS.writeFile(settingsFilePath, JSON.stringify(cameraSettingsData, null, 2), 'utf8');
+      // removed: console.log(`Camera settings saved: ${settingsFileName}`);
+
+      return settingsFileName;
+    } catch (error) {
+      console.error('Error saving camera settings:', error);
       return null;
     }
   };
@@ -435,12 +525,19 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
 
     try {
       setIsRecording(true);
+      
+      // Set recording start time (UTC)
+      recordingStartTime.current = Date.now();
+      recordingEndTime.current = 0; // Reset end time for new recording
+      
       startTimer();
       startGPSDataCollection();
+      startGyroscopeDataCollection();
       
       cpuStatsRef.current = [];
       memoryStatsRef.current = [];
       
+      // Store start time as string for display
       const now = new Date();
       startTimeRef.current = now.toLocaleTimeString('en-US', { 
         hour: '2-digit', 
@@ -458,6 +555,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
           setIsRecording(false);
           stopTimer();
           stopGPSDataCollection();
+          stopGyroscopeDataCollection();
         },
       });
     } catch (error) {
@@ -466,6 +564,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       setIsRecording(false);
       stopTimer();
       stopGPSDataCollection();
+      stopGyroscopeDataCollection();
     }
   };
 
@@ -475,7 +574,12 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     try {
       setIsProcessing(true);
       stopGPSDataCollection();
+      stopGyroscopeDataCollection();
       
+      // Capture recording end time in UTC
+      recordingEndTime.current = Date.now();
+      
+      // Store end time as string for display
       const now = new Date();
       endTimeRef.current = now.toLocaleTimeString('en-US', { 
         hour: '2-digit', 
@@ -491,6 +595,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       Alert.alert('Error', 'Failed to stop recording');
       setIsProcessing(false);
       stopGPSDataCollection();
+      stopGyroscopeDataCollection();
     }
   };
 
@@ -501,7 +606,6 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
 
   const handleTapToFocus = async (event: any) => {
     if (!settings.camera.tapToFocusEnabled || !device?.supportsFocus) {
-      console.log('❌ Tap-to-focus disabled or not supported');
       return;
     }
     
@@ -509,13 +613,11 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     
     // Validate coordinates
     if (locationX === undefined || locationY === undefined) {
-      console.log('❌ Invalid tap coordinates');
       return;
     }
 
     // Validate camera layout
     if (!cameraLayout.width || !cameraLayout.height) {
-      console.log('❌ Camera layout not initialized');
       return;
     }
 
@@ -538,23 +640,28 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         const normalizedX = locationX / cameraLayout.width;
         const normalizedY = locationY / cameraLayout.height;
         
-        console.log('📸 Recording - Focusing at:', {
-          pixel: { x: locationX, y: locationY },
-          normalized: { x: normalizedX.toFixed(2), y: normalizedY.toFixed(2) },
-          layout: cameraLayout,
-        });
-
         await camera.current.focus({
           x: normalizedX,
           y: normalizedY,
         });
         
-        console.log('✅ Focus successful');
       } catch (error) {
         console.error('❌ Focus error:', error);
       }
-    } else {
-      console.log('❌ Camera ref not available');
+    }
+  };
+
+  const verifyFileSaved = async (filePath: string, fileType: string): Promise<boolean> => {
+    try {
+      const fileExists = await RNFS.exists(filePath);
+      if (!fileExists) {
+        console.error(`${fileType} file not found:`, filePath);
+        return false;
+      }
+      return true;
+    } catch (error) {
+      console.error(`Error verifying ${fileType}:`, error);
+      return false;
     }
   };
 
@@ -570,6 +677,8 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       await RNFS.moveFile(videoPath, destPath);
 
       const gpsFileName = await saveGPSData(fileName);
+      const gyroscopeFileName = await saveGyroscopeData(fileName);
+      const cameraSettingsFileName = await saveCameraSettings(fileName);
 
       const avgCPU = cpuStatsRef.current.length > 0
         ? Math.round(cpuStatsRef.current.reduce((a, b) => a + b, 0) / cpuStatsRef.current.length)
@@ -587,28 +696,84 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         ? Math.max(...memoryStatsRef.current)
         : 0;
 
-      const savedDuration = recordingTime;
+      // Calculate actual duration from start and end timestamps
+      const actualDuration = recordingEndTime.current > 0 && recordingStartTime.current > 0
+        ? Math.round((recordingEndTime.current - recordingStartTime.current) / 1000)
+        : recordingTime;
+      
+      const savedDuration = actualDuration;
+      const savedDistance = totalDistanceRef.current;
+
+      const gpsFilePath = Platform.OS === 'ios'
+        ? `${RNFS.DocumentDirectoryPath}/${gpsFileName}`
+        : `${RNFS.DownloadDirectoryPath}/${gpsFileName}`;
+
+      const gyroscopeFilePath = Platform.OS === 'ios'
+        ? `${RNFS.DocumentDirectoryPath}/${gyroscopeFileName}`
+        : `${RNFS.DownloadDirectoryPath}/${gyroscopeFileName}`;
+
+      const cameraSettingsFilePath = Platform.OS === 'ios'
+        ? `${RNFS.DocumentDirectoryPath}/${cameraSettingsFileName}`
+        : `${RNFS.DownloadDirectoryPath}/${cameraSettingsFileName}`;
+
+      // Verify all files are saved
+      
+      const videoSaved = await verifyFileSaved(destPath, 'Video');
+      const gpsSaved = await verifyFileSaved(gpsFilePath, 'GPS');
+      const gyroSaved = await verifyFileSaved(gyroscopeFilePath, 'Gyroscope');
+      const cameraSettingsSaved = await verifyFileSaved(cameraSettingsFilePath, 'Camera Settings');
 
       setIsProcessing(false);
       setRecordingTime(0);
 
-      navigation.navigate('Summary', {
-        startTime: startTimeRef.current,
-        endTime: endTimeRef.current,
-        distance: totalDistanceRef.current,
-        duration: savedDuration,
-        avgCPU,
-        highestCPU,
-        avgMemory,
-        highestMemory,
-        videoPath: destPath,
-      });
+      // Show success message
+      const saveLocation = Platform.OS === 'ios' ? 'Files app' : 'Downloads folder';
+      const allSaved = videoSaved && gpsSaved && gyroSaved && cameraSettingsSaved;
+      
+      if (allSaved) {
+        Alert.alert(
+          'Recording Saved',
+          `All files have been saved to ${saveLocation}!\n\n` +
+          `📹 Video\n` +
+          `📍 ${gpsDataRef.current.length} GPS points\n` +
+          `🔄 ${gyroDataRef.current.length} Gyroscope points\n` +
+          `⚙️ Camera settings`,
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert(
+          'Partial Save',
+          'Some files may not have been saved correctly. Please check your storage.',
+          [{ text: 'OK' }]
+        );
+      }
 
-      console.log('Video and GPS data saved successfully');
-      console.log(`GPS data: ${gpsFileName} (${gpsDataRef.current.length} points)`);
+      // Navigate to summary after 2 seconds
+      setTimeout(() => {
+        navigation.navigate('Summary', {
+          startTime: startTimeRef.current,
+          endTime: endTimeRef.current,
+          distance: savedDistance,
+          duration: savedDuration,
+          avgCPU,
+          highestCPU,
+          avgMemory,
+          highestMemory,
+          videoPath: destPath,
+          gpsFilePath: gpsFilePath,
+          gyroscopeFilePath: gyroscopeFilePath,
+          cameraSettingsFilePath: cameraSettingsFilePath,
+          settings: settings,
+        });
+      }, 2000);
+
+      // removed: console.log('Video, GPS, Gyroscope, and Camera Settings saved successfully');
+      // removed: console.log(`GPS data: ${gpsFileName} (${gpsDataRef.current.length} points)`);
+      // removed: console.log(`Gyroscope data: ${gyroscopeFileName} (${gyroDataRef.current.length} points)`);
+      // removed: console.log(`Camera settings: ${cameraSettingsFileName}`);
     } catch (error) {
       console.error('Save video error:', error);
-      Alert.alert('Error', 'Failed to download video. Please try again.');
+      Alert.alert('Error', 'Failed to save files. Please try again.');
       setIsProcessing(false);
     }
   };
@@ -633,6 +798,24 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     );
   }
 
+  // Log camera settings on mount and when they change
+  useEffect(() => {
+    // removed: console.log('📸 VideoRecorder - Full Settings Received:', {
+    //  camera: settings.camera,
+    //  video: settings.video,
+    //  frameRate: settings.frameRate,
+    //  zoom: zoom,
+    // });
+  }, []);
+
+  useEffect(() => {
+    // removed: console.log('📸 VideoRecorder - Exposure Changed:', {
+    //  exposureMode: settings.camera.exposureMode,
+    //  exposure: settings.camera.exposure,
+    //  willApply: settings.camera.exposureMode === 'manual' ? settings.camera.exposure : 'auto (undefined)',
+    // });
+  }, [settings.camera.exposure, settings.camera.exposureMode]);
+
   return (
     <View style={styles.container}>
       <Pressable 
@@ -640,11 +823,23 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         onPress={handleTapToFocus}
         onLayout={handleCameraLayout}
       >
+        {/* Camera exposure value being applied */}
+        {(() => {
+          // removed: const exposureValue = settings.camera.exposureMode === 'manual' ? settings.camera.exposure : undefined;
+          // removed: console.log('📸 Camera Component Exposure:', {
+          //   exposureMode: settings.camera.exposureMode,
+          //   exposureValue: exposureValue,
+          //   rawExposure: settings.camera.exposure,
+          // });
+          return null;
+        })()}
         <Camera
+          key={`${settings.video.resolution}-${settings.frameRate.fps}-${settings.camera.hdr}`}
           ref={camera}
           style={styles.camera}
           device={device}
           isActive={true}
+          photo={true}
           video={true}
           audio={true}
           format={format}
@@ -677,6 +872,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
           <View style={styles.recordingBadge}>
             <Animated.View style={[styles.recordingDot, { transform: [{ scale: pulseAnim }] }]} />
             <Text style={styles.recordingText}>Recording</Text>
+            <Text style={styles.recordingDuration}>{formatTime(recordingTime)}</Text>
           </View>
         )}
 
@@ -746,6 +942,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
                             }
                             stopTimer();
                             stopGPSDataCollection();
+                            stopGyroscopeDataCollection();
                             setIsRecording(false);
                             setRecordingTime(0);
                             navigation.goBack();
@@ -814,6 +1011,12 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: responsiveFontSize(11),
     fontWeight: '600',
+  },
+  recordingDuration: {
+    color: '#FFF',
+    fontSize: responsiveFontSize(11),
+    fontWeight: '600',
+    marginLeft: responsiveSpacing(4),
   },
   leftSidebar: {
     position: 'absolute',
@@ -908,13 +1111,13 @@ const styles = StyleSheet.create({
     gap: responsiveSpacing(5),
   },
   closeButton: {
-    width:30,
-    height: 30,
-    borderRadius: responsiveScale(17.5),
+    width:60,
+    height: 60,
+    borderRadius: 100,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: responsiveSpacing(1.5),
+    borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   closeButtonText: {
@@ -923,13 +1126,13 @@ const styles = StyleSheet.create({
     fontWeight: '300',
   },
   recordButton: {
-    width: responsiveScale(50),
-    height: responsiveScale(50),
-    borderRadius: responsiveScale(25),
+    width: 90,
+    height: 90,
+    borderRadius: 100,
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: responsiveSpacing(3),
+    borderWidth: 2,
     borderColor: '#FFF',
   },
   recordButtonActive: {
@@ -937,9 +1140,9 @@ const styles = StyleSheet.create({
     borderColor: '#EF4444',
   },
   recordButtonInner: {
-    width: responsiveScale(36),
-    height: responsiveScale(36),
-    borderRadius: responsiveScale(18),
+    width: 70,
+    height: 70,
+    borderRadius: 100,
     backgroundColor: '#EF4444',
   },
   recordButtonInnerActive: {

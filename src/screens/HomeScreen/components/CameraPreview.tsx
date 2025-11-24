@@ -12,6 +12,7 @@ interface CameraPreviewProps {
   selectedLens: string;
   hdr: boolean;
   onStartRecording: () => void;
+  onDownloadFile?: () => void;
 }
 
 export const CameraPreview: React.FC<CameraPreviewProps> = ({
@@ -23,6 +24,7 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
   selectedLens,
   hdr,
   onStartRecording,
+  onDownloadFile,
 }) => {
   const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -140,7 +142,7 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
             <View style={styles.cameraOverlay} pointerEvents="none">
               <Text style={styles.cameraStats}>
                 {settings.video.resolution} • {fps}fps • {selectedLens} {videoHdrEnabled ? '• HDR' : ''}
-                {settings.camera.tapToFocusEnabled && device?.supportsFocus ? ' • 👆 Tap to Focus' : ''}
+               
               </Text>
             </View>
           </>
@@ -150,6 +152,12 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
       <TouchableOpacity style={styles.recordButton} onPress={onStartRecording}>
         <Text style={styles.recordButtonText}>Start Recording</Text>
       </TouchableOpacity>
+
+      {/* {onDownloadFile && (
+        <TouchableOpacity style={styles.downloadButton} onPress={onDownloadFile}>
+          <Text style={styles.downloadButtonText}>📥 Download File</Text>
+        </TouchableOpacity>
+      )} */}
     </View>
   );
 };
@@ -214,6 +222,25 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   recordButtonText: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  downloadButton: {
+    backgroundColor: '#0EA5E9',
+    paddingVertical: 12,
+    width: '80%',
+    alignSelf: 'center',
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 12,
+    shadowColor: '#0EA5E9',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  downloadButtonText: {
     color: '#fff',
     fontSize: 17,
     fontWeight: '700',
