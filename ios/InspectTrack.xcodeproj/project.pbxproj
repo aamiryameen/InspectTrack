@@ -12,6 +12,8 @@
 		75DFFDFE498EADE76ECDAFD3 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
+		CPUUSAGE001A68108700A75B9A /* CpuUsageModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = CPUUSAGE002A68108700A75B9A /* CpuUsageModule.swift */; };
+		CPUUSAGE003A68108700A75B9A /* CpuUsageModule.m in Sources */ = {isa = PBXBuildFile; fileRef = CPUUSAGE004A68108700A75B9A /* CpuUsageModule.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -25,6 +27,9 @@
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = InspectTrack/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = InspectTrack/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		CPUUSAGE002A68108700A75B9A /* CpuUsageModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CpuUsageModule.swift; path = InspectTrack/CpuUsageModule.swift; sourceTree = "<group>"; };
+		CPUUSAGE004A68108700A75B9A /* CpuUsageModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CpuUsageModule.m; path = InspectTrack/CpuUsageModule.m; sourceTree = "<group>"; };
+		CPUUSAGE005A68108700A75B9A /* InspectTrack-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "InspectTrack-Bridging-Header.h"; path = "InspectTrack/InspectTrack-Bridging-Header.h"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44,6 +49,9 @@
 			children = (
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				761780EC2CA45674006654EE /* AppDelegate.swift */,
+				CPUUSAGE002A68108700A75B9A /* CpuUsageModule.swift */,
+				CPUUSAGE004A68108700A75B9A /* CpuUsageModule.m */,
+				CPUUSAGE005A68108700A75B9A /* InspectTrack-Bridging-Header.h */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */,
 				13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */,
@@ -255,6 +263,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				761780ED2CA45674006654EE /* AppDelegate.swift in Sources */,
+				CPUUSAGE001A68108700A75B9A /* CpuUsageModule.swift in Sources */,
+				CPUUSAGE003A68108700A75B9A /* CpuUsageModule.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -284,6 +294,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "org.reactjs.native.example.$(PRODUCT_NAME:rfc1034identifier)";
 				PRODUCT_NAME = InspectTrack;
+				SWIFT_OBJC_BRIDGING_HEADER = "InspectTrack/InspectTrack-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
@@ -312,6 +323,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "org.reactjs.native.example.$(PRODUCT_NAME:rfc1034identifier)";
 				PRODUCT_NAME = InspectTrack;
+				SWIFT_OBJC_BRIDGING_HEADER = "InspectTrack/InspectTrack-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				VERSIONING_SYSTEM = "apple-generic";
 			};

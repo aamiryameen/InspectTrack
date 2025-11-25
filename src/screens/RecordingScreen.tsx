@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import VideoRecorder from '../components/VideoRecorder';
+import VideoRecorder from './VideoRecorderScreen/components/VideoRecorder';
 import { RecordingSettings } from '../utils/settingsUtils';
 
 type RootStackParamList = {
