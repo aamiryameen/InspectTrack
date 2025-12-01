@@ -34,10 +34,11 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 const App = () => {
   return (
     <Provider store={store}>
-      <NavigationContainer>
+      <NavigationContainer >
         <Stack.Navigator
           initialRouteName="Home"
           screenOptions={{
+            headerShown: false,
             headerStyle: {
               backgroundColor: '#000',
             },
@@ -50,30 +51,18 @@ const App = () => {
           <Stack.Screen
             name="Home"
             component={HomeScreen}
-            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="Recording"
             component={RecordingScreen}
-            options={{
-              headerShown: false,
-            }}
           />
           <Stack.Screen
             name="Summary"
             component={SummaryScreen}
-            options={{
-              title: 'Summary',
-              headerShown: true,
-            }}
           />
           <Stack.Screen
             name="DownloadFile"
             component={DownloadFileScreen}
-            options={{
-              title: 'Download Files',
-              headerShown: true,
-            }}
           />
         </Stack.Navigator>
       </NavigationContainer>

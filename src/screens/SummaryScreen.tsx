@@ -7,6 +7,7 @@ import {
   ScrollView,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { RecordingSettings } from '../utils/settingsUtils';
 import RNFS from 'react-native-fs';
@@ -144,7 +145,7 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -232,7 +233,7 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
           <Text style={styles.backToHomeText}>BACK TO HOME</Text>
         </TouchableOpacity>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 };
 

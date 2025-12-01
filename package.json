@@ -6,6 +6,7 @@
     "android": "react-native run-android",
     "android:clean": "cd android && ./gradlew clean",
     "ios": "react-native run-ios",
+    "ios:device": "react-native run-ios --device \"iPhone\"",
     "pod:install": "cd ios && pod install",
     "lint": "eslint .",
     "start": "react-native start",

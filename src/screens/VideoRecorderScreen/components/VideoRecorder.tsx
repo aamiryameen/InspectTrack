@@ -18,7 +18,6 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 // Custom hooks
 import { useSystemMonitoring, useGyroscope, useLocationTracking, useRecordingTimer } from '../hooks';
 
-// UI Components
 import {
   RecordingBadge,
   StatsOverlay,
@@ -59,7 +58,6 @@ interface VideoRecorderProps {
 const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings, zoom: initialZoom }) => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   
-  // Local state
   const [settings, setSettings] = useState<RecordingSettings>(initialSettings);
   const [zoom, setZoom] = useState<number>(initialZoom);
   const [isRecording, setIsRecording] = useState(false);
@@ -67,21 +65,21 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
   const [cameraLayout, setCameraLayout] = useState({ width: 0, height: 0 });
   
-  // Refs
   const camera = useRef<Camera>(null);
   const focusFadeAnim = useRef(new Animated.Value(0)).current;
   const recordingStartTime = useRef<number>(0);
   const recordingEndTime = useRef<number>(0);
   const startTimeRef = useRef<string>('');
   const endTimeRef = useRef<string>('');
+  const sensorStartTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef<boolean>(true);
+  const layoutTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Custom hooks
   const { cpuUsage, memoryUsage, storageUsage, cpuStatsRef, memoryStatsRef, resetStats } = useSystemMonitoring(isRecording);
   const { gyroDataRef, startGyroscopeDataCollection, stopGyroscopeDataCollection } = useGyroscope(settings);
   const { gpsDataRef, totalDistanceRef, startGPSDataCollection, stopGPSDataCollection } = useLocationTracking(settings);
   const { recordingTime, pulseAnim, startTimer, stopTimer, resetTimer, formatTime } = useRecordingTimer(isRecording);
 
-  // Camera setup
   const device = useCameraDevice('back');
   const resolution = getResolutionDimensions(settings.video.resolution);
   const format = useCameraFormat(device, [
@@ -95,7 +93,6 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const { hasPermission: hasCameraPermission, requestPermission: requestCameraPermission } = useCameraPermission();
   const { hasPermission: hasMicrophonePermission, requestPermission: requestMicrophonePermission } = useMicrophonePermission();
 
-  // Update zoom and settings when props change
   useEffect(() => {
     setZoom(initialZoom);
   }, [initialZoom]);
@@ -104,12 +101,25 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     setSettings(initialSettings);
   }, [initialSettings]);
 
-  // Lock orientation on mount
   useEffect(() => {
-    Orientation.lockToLandscape();
+    isMountedRef.current = true;
+    
+    if (Platform.OS === 'ios') {
+      requestAnimationFrame(() => {
+        Orientation.lockToLandscape();
+      });
+    } else {
+      Orientation.lockToLandscape();
+    }
+    
     checkPermissions();
 
     return () => {
+      isMountedRef.current = false;
+      if (layoutTimeoutRef.current) {
+        clearTimeout(layoutTimeoutRef.current);
+        layoutTimeoutRef.current = null;
+      }
       Orientation.unlockAllOrientations();
     };
   }, []);
@@ -145,12 +155,40 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   };
 
   const handleCameraLayout = useCallback((event: any) => {
+    
+    if (!event || !event.nativeEvent || !event.nativeEvent.layout) {
+      return;
+    }
+
     const { width, height } = event.nativeEvent.layout;
-    setCameraLayout({ width, height });
+    
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+
+    if (layoutTimeoutRef.current) {
+      clearTimeout(layoutTimeoutRef.current);
+      layoutTimeoutRef.current = null;
+    }
+
+    layoutTimeoutRef.current = setTimeout(() => {
+      if (!isMountedRef.current) {
+        return;
+      }
+
+      try {
+     
+        if (width > 0 && height > 0 && isMountedRef.current) {
+          setCameraLayout({ width, height });
+        }
+      } catch (error) {
+        console.error('Error handling camera layout:', error);
+      }
+    }, 100); 
   }, []);
 
   const handleTapToFocus = useCallback(async (event: any) => {
-    if (!settings.camera.tapToFocusEnabled || !device?.supportsFocus) {
+    if (!isMountedRef.current || !settings.camera.tapToFocusEnabled || !device?.supportsFocus) {
       return;
     }
     
@@ -164,6 +202,10 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         return;
     }
 
+    if (!isMountedRef.current) {
+      return;
+    }
+
     setFocusPoint({ x: locationX, y: locationY });
     
     focusFadeAnim.setValue(1);
@@ -171,11 +213,13 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       toValue: 0,
       duration: 1500,
       useNativeDriver: true,
-    }).start(() => {
-      setFocusPoint(null);
+    }).start((finished) => {
+      if (finished && isMountedRef.current) {
+        setFocusPoint(null);
+      }
     });
 
-    if (camera.current) {
+    if (camera.current && isMountedRef.current) {
       try {
         const normalizedX = locationX / cameraLayout.width;
         const normalizedY = locationY / cameraLayout.height;
@@ -285,7 +329,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     }
   };
 
-  const handleVideoSave = async (videoPath: string) => {
+  const handleVideoSave = useCallback(async (videoPath: string) => {
     try {
       const timestamp = new Date().getTime();
       const fileName = `video_${timestamp}.mp4`;
@@ -340,106 +384,144 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       const gyroSaved = await verifyFileSaved(gyroscopeFilePath, 'Gyroscope');
       const cameraSettingsSaved = await verifyFileSaved(cameraSettingsFilePath, 'Camera Settings');
 
-      setIsProcessing(false);
-      resetTimer();
+      if (isMountedRef.current) {
+        setIsProcessing(false);
+        resetTimer();
 
-      const saveLocation = Platform.OS === 'ios' ? 'Files app' : 'Downloads folder';
-      const allSaved = videoSaved && gpsSaved && gyroSaved && cameraSettingsSaved;
-      
-      if (allSaved) {
-        Alert.alert(
-          'Recording Saved',
-          `All files have been saved to ${saveLocation}!\n\n` +
-          `📹 Video\n` +
-          `📍 ${gpsDataRef.current.length} GPS points\n` +
-          `🔄 ${gyroDataRef.current.length} Gyroscope points\n` +
-          `⚙️ Camera settings`,
-          [{ text: 'OK' }]
-        );
-      } else {
-        Alert.alert(
-          'Partial Save',
-          'Some files may not have been saved correctly. Please check your storage.',
-          [{ text: 'OK' }]
-        );
+        const saveLocation = Platform.OS === 'ios' ? 'Files app' : 'Downloads folder';
+        const allSaved = videoSaved && gpsSaved && gyroSaved && cameraSettingsSaved;
+        
+        if (allSaved) {
+          Alert.alert(
+            'Recording Saved',
+            `All files have been saved to ${saveLocation}!\n\n` +
+            `📹 Video\n` +
+            `📍 ${gpsDataRef.current.length} GPS points\n` +
+            `🔄 ${gyroDataRef.current.length} Gyroscope points\n` +
+            `⚙️ Camera settings`,
+            [{ text: 'OK' }]
+          );
+        } else {
+          Alert.alert(
+            'Partial Save',
+            'Some files may not have been saved correctly. Please check your storage.',
+            [{ text: 'OK' }]
+          );
+        }
+
+        setTimeout(() => {
+          if (isMountedRef.current) {
+            navigation.navigate('Summary', {
+              startTime: startTimeRef.current,
+              endTime: endTimeRef.current,
+              distance: savedDistance,
+              duration: savedDuration,
+              avgCPU,
+              highestCPU,
+              avgMemory,
+              highestMemory,
+              videoPath: destPath,
+              gpsFilePath: gpsFilePath,
+              gyroscopeFilePath: gyroscopeFilePath,
+              cameraSettingsFilePath: cameraSettingsFilePath,
+              settings: settings,
+            });
+          }
+        }, 2000);
       }
-
-      setTimeout(() => {
-        navigation.navigate('Summary', {
-          startTime: startTimeRef.current,
-          endTime: endTimeRef.current,
-          distance: savedDistance,
-          duration: savedDuration,
-          avgCPU,
-          highestCPU,
-          avgMemory,
-          highestMemory,
-          videoPath: destPath,
-          gpsFilePath: gpsFilePath,
-          gyroscopeFilePath: gyroscopeFilePath,
-          cameraSettingsFilePath: cameraSettingsFilePath,
-          settings: settings,
-        });
-      }, 2000);
     } catch (error) {
       console.error('Save video error:', error);
-      Alert.alert('Error', 'Failed to save files. Please try again.');
-      setIsProcessing(false);
+      if (isMountedRef.current) {
+        Alert.alert('Error', 'Failed to save files. Please try again.');
+        setIsProcessing(false);
+      }
     }
-  };
+  }, [settings, recordingTime, navigation, resetTimer]);
 
   const startRecording = useCallback(async () => {
-    if (!camera.current) {
+    if (!isMountedRef.current || !camera.current) {
       Alert.alert('Error', 'Camera not ready');
       return;
     }
 
     try {
+      if (!isMountedRef.current) return;
       setIsRecording(true);
-      
-      recordingStartTime.current = Date.now();
       recordingEndTime.current = 0;
-      
-      startTimer();
-      startGPSDataCollection();
-      startGyroscopeDataCollection();
-      resetStats();
-      
-      const now = new Date();
-      startTimeRef.current = now.toLocaleTimeString('en-US', { 
-        hour: '2-digit', 
-        minute: '2-digit',
-        hour12: true 
-      });
 
-      await camera.current.startRecording({
+      camera.current.startRecording({
         onRecordingFinished: async (video) => {
-          await handleVideoSave(video.path);
+          if (isMountedRef.current) {
+            await handleVideoSave(video.path);
+          }
         },
         onRecordingError: (error) => {
           console.error('Recording error:', error);
-          Alert.alert('Error', 'Failed to record video');
-          setIsRecording(false);
-          stopTimer();
-          stopGPSDataCollection();
-          stopGyroscopeDataCollection();
+          if (isMountedRef.current) {
+            Alert.alert('Error', 'Failed to record video');
+          }
+          if (sensorStartTimeout.current) {
+            clearTimeout(sensorStartTimeout.current);
+            sensorStartTimeout.current = null;
+          }
+          if (isMountedRef.current) {
+            setIsRecording(false);
+            stopTimer();
+            stopGPSDataCollection();
+            stopGyroscopeDataCollection();
+          }
         },
       });
+
+      sensorStartTimeout.current = setTimeout(() => {
+        if (!isMountedRef.current) {
+          return;
+        }
+        sensorStartTimeout.current = null;
+        recordingStartTime.current = Date.now();
+        
+        startTimer();
+        startGPSDataCollection();
+        startGyroscopeDataCollection();
+        resetStats();
+        
+        const now = new Date();
+        startTimeRef.current = now.toLocaleTimeString('en-US', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: true 
+        });
+      }, 900);
     } catch (error) {
       console.error('Start recording error:', error);
-      Alert.alert('Error', 'Failed to start recording');
-      setIsRecording(false);
-      stopTimer();
-      stopGPSDataCollection();
-      stopGyroscopeDataCollection();
+      if (isMountedRef.current) {
+        Alert.alert('Error', 'Failed to start recording');
+      }
+      if (sensorStartTimeout.current) {
+        clearTimeout(sensorStartTimeout.current);
+        sensorStartTimeout.current = null;
+      }
+      if (isMountedRef.current) {
+        setIsRecording(false);
+        stopTimer();
+        stopGPSDataCollection();
+        stopGyroscopeDataCollection();
+      }
     }
-  }, [startTimer, startGPSDataCollection, startGyroscopeDataCollection, resetStats, stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection]);
+  }, [startTimer, startGPSDataCollection, startGyroscopeDataCollection, resetStats, stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, handleVideoSave]);
 
   const pauseRecording = useCallback(async () => {
-    if (!camera.current) return;
+    if (!isMountedRef.current || !camera.current) return;
 
     try {
+      if (!isMountedRef.current) return;
       setIsProcessing(true);
+      
+      if (sensorStartTimeout.current) {
+        clearTimeout(sensorStartTimeout.current);
+        sensorStartTimeout.current = null;
+      }
+      
       stopGPSDataCollection();
       stopGyroscopeDataCollection();
       
@@ -453,14 +535,18 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       });
       
       await camera.current.stopRecording();
-      setIsRecording(false);
-      stopTimer();
+      if (isMountedRef.current) {
+        setIsRecording(false);
+        stopTimer();
+      }
     } catch (error) {
       console.error('Pause recording error:', error);
-      Alert.alert('Error', 'Failed to stop recording');
-      setIsProcessing(false);
-      stopGPSDataCollection();
-      stopGyroscopeDataCollection();
+      if (isMountedRef.current) {
+        Alert.alert('Error', 'Failed to stop recording');
+        setIsProcessing(false);
+        stopGPSDataCollection();
+        stopGyroscopeDataCollection();
+      }
     }
   }, [stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection]);
 
@@ -480,6 +566,10 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
                         text: 'Yes', 
                         onPress: async () => {
                           try {
+                            if (sensorStartTimeout.current) {
+                              clearTimeout(sensorStartTimeout.current);
+                              sensorStartTimeout.current = null;
+                            }
                             if (camera.current) {
                               await camera.current.stopRecording();
                             }
@@ -555,6 +645,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
           cpuUsage={cpuUsage}
           memoryUsage={memoryUsage}
           storageUsage={storageUsage}
+          
         />
 
         <InfoOverlay

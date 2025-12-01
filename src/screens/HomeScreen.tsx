@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Modal,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Camera, useCameraDevice, useCameraFormat } from 'react-native-vision-camera';
 import Orientation from 'react-native-orientation-locker';
@@ -72,7 +73,14 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
   const lensOptions = ['0.5x', '1x', '2x', '3x'];
   const resolutionOptions: Array<'720p' | '1080p' | '4K'> = ['720p', '1080p', '4K'];
-  const frameRateOptions = [24, 30, 60];
+  
+  const getAvailableFrameRateOptions = (): number[] => {
+    const allOptions = [24, 30, 60];
+    if (!format) return allOptions;
+    return allOptions.filter(fps => fps >= format.minFps && fps <= format.maxFps);
+  };
+  
+  const frameRateOptions = getAvailableFrameRateOptions();
 
   const getResolutionDimensions = (resolution: '720p' | '1080p' | '4K'): { width: number; height: number } => {
     switch (resolution) {
@@ -104,13 +112,51 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
   const resolution = getResolutionDimensions(settings.video.resolution);
   
-  // Select camera format based on resolution and fps
   const format = useCameraFormat(device, [
     { videoResolution: resolution },
     { fps: settings.frameRate.fps }
   ]);
 
-  // Debug: Log all available formats to understand HDR support
+  const getMaxSupportedFps = (): number => {
+    if (!format) {
+      if (!device?.formats) return 30;
+      const matchingFormats = device.formats.filter(
+        f => f.videoWidth === resolution.width && f.videoHeight === resolution.height
+      );
+      if (matchingFormats.length === 0) return 30;
+      return Math.max(...matchingFormats.map(f => f.maxFps));
+    }
+    return format.maxFps;
+  };
+
+  const validateAndAdjustFps = (fps: number): number => {
+    const maxFps = getMaxSupportedFps();
+    if (fps > maxFps) {
+      return maxFps;
+    }
+    const minFps = format?.minFps || 24;
+    if (fps < minFps) {
+      return minFps;
+    }
+    return fps;
+  };
+
+  useEffect(() => {
+    if (format && settings.frameRate.fps > format.maxFps) {
+      const adjustedFps = validateAndAdjustFps(settings.frameRate.fps);
+      const updatedSettings = {
+        ...settings,
+        frameRate: {
+          ...settings.frameRate,
+          fps: adjustedFps,
+        },
+      };
+      setSettings(updatedSettings);
+      setSelectedFrameRate(adjustedFps);
+      saveSettings(updatedSettings);
+    }
+  }, [format, settings.video.resolution]);
+
   useEffect(() => {
     if (device?.formats) {
       console.log('📸 Total available formats:', device.formats.length);
@@ -131,9 +177,29 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   useEffect(() => {
     const initializeSettings = async () => {
       const loadedSettings = await loadSettings();
-      setSettings(loadedSettings);
       
-      // Load camera settings
+      if (device) {
+        const validatedFps = validateAndAdjustFps(loadedSettings.frameRate.fps);
+        if (validatedFps !== loadedSettings.frameRate.fps) {
+          const updatedSettings = {
+            ...loadedSettings,
+            frameRate: {
+              ...loadedSettings.frameRate,
+              fps: validatedFps,
+            },
+          };
+          setSettings(updatedSettings);
+          await saveSettings(updatedSettings);
+          setSelectedFrameRate(validatedFps);
+        } else {
+          setSettings(loadedSettings);
+          setSelectedFrameRate(loadedSettings.frameRate.fps);
+        }
+      } else {
+        setSettings(loadedSettings);
+        setSelectedFrameRate(loadedSettings.frameRate.fps);
+      }
+      
       if (loadedSettings.camera) {
         setExposureMode(loadedSettings.camera.exposureMode);
         setExposure(loadedSettings.camera.exposure);
@@ -143,9 +209,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         setTapToFocusEnabled(loadedSettings.camera.tapToFocusEnabled ?? true);
       }
       
-      // Load video/frame rate settings
       setSelectedResolution(loadedSettings.video.resolution);
-      setSelectedFrameRate(loadedSettings.frameRate.fps);
       
       setSelectedLens('1x');
       setZoom(1);
@@ -154,9 +218,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
     initializeSettings();
     requestCameraPermission();
-  }, []);
+  }, [device]);
 
-  // Lock orientation to portrait mode
   useEffect(() => {
     Orientation.lockToPortrait();
     
@@ -173,7 +236,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   };
 
   const startRecording = () => {
-    // Sync all current settings before navigation
     const currentSettings: RecordingSettings = {
       ...settings,
       camera: {
@@ -241,14 +303,17 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   };
 
   const handleFrameRateChange = async (fps: number) => {
+    const validatedFps = validateAndAdjustFps(fps);
+    
     const newSettings = {
       ...settings,
       frameRate: {
         ...settings.frameRate,
-        fps,
+        fps: validatedFps,
       },
     };
     setSettings(newSettings);
+    setSelectedFrameRate(validatedFps);
     await saveSettings(newSettings);
     setFrameRateExpanded(false);
   };
@@ -337,32 +402,26 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
   if (isLoadingSettings) {
     return (
-      <View style={styles.loadingContainer}>
+      <SafeAreaView style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#0EA5E9" />
         <Text style={styles.loadingText}>Loading settings...</Text>
-      </View>
+      </SafeAreaView>
     );
   }
 
   if (!device) {
     return (
-      <View style={styles.loadingContainer}>
+      <SafeAreaView style={styles.loadingContainer}>
         <Text style={styles.errorText}>Camera device not found</Text>
-      </View>
+      </SafeAreaView>
     );
   }
 
-
-  
-
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="#f5f5f5" />
 
-      <View style={styles.header}>
-
-      
-      </View>
+      <View style={styles.header}></View>
     
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         <CameraPreview
@@ -436,7 +495,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           <WhiteBalanceSetting />
         </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 };
 

@@ -4,6 +4,8 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const guidelineBaseWidth = 375;
 const guidelineBaseHeight = 812;
+export const isAndroid = Platform.OS === 'android';
+export const isIOS = Platform.OS === 'ios';
 
 export const isLandscape = (): boolean => {
   const { width, height } = Dimensions.get('window');

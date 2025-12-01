@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import VideoRecorder from './VideoRecorderScreen/components/VideoRecorder';
 import { RecordingSettings } from '../utils/settingsUtils';
@@ -36,9 +37,9 @@ const RecordingScreen: React.FC<RecordingScreenProps> = ({ route }) => {
   });
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <VideoRecorder settings={settings} zoom={zoom} />
-    </View>
+    </SafeAreaView>
   );
 };
 

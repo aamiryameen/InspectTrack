@@ -42,9 +42,9 @@ export const ISOSetting: React.FC<ISOSettingProps> = ({
             <Text style={styles.sliderLabel}>ISO {Math.round(format?.maxISO ?? 3200)}</Text>
           </View>
           <Text style={styles.sliderValue}>Current: ISO {Math.round(iso)}</Text>
-          <Text style={styles.noteText}>
+          {/* <Text style={styles.noteText}>
             Note: ISO settings are saved but react-native-vision-camera v4.7 doesn't support direct ISO control. The exposure setting controls both ISO and shutter speed automatically.
-          </Text>
+          </Text> */}
         </>
       )}
     </View>
