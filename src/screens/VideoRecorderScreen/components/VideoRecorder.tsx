@@ -71,7 +71,6 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const recordingEndTime = useRef<number>(0);
   const startTimeRef = useRef<string>('');
   const endTimeRef = useRef<string>('');
-  const sensorStartTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef<boolean>(true);
   const layoutTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -296,6 +295,8 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         fps: settings.frameRate.fps,
         resolution: settings.video.resolution,
         exposure: settings.camera.exposure,
+        exposureMin: settings.camera.exposureMin,
+        exposureMax: settings.camera.exposureMax,
         iso: settings.camera.iso,
         hdr: settings.camera.hdr,
         tapToFocusEnabled: settings.camera.tapToFocusEnabled,
@@ -446,9 +447,29 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
 
     try {
       if (!isMountedRef.current) return;
-      setIsRecording(true);
+      
+      // Capture a single start timestamp that all systems will use for perfect synchronization
+      const synchronizedStartTime = Date.now();
+      recordingStartTime.current = synchronizedStartTime;
       recordingEndTime.current = 0;
 
+      // Start all systems simultaneously with the same timestamp
+      setIsRecording(true);
+      resetStats();
+      
+      // Start timer, GPS, and gyroscope with the same start timestamp
+      startTimer(synchronizedStartTime);
+      startGPSDataCollection(synchronizedStartTime);
+      startGyroscopeDataCollection(synchronizedStartTime);
+      
+      const now = new Date();
+      startTimeRef.current = now.toLocaleTimeString('en-US', { 
+        hour: '2-digit', 
+        minute: '2-digit',
+        hour12: true 
+      });
+
+      // Start camera recording immediately after
       camera.current.startRecording({
         onRecordingFinished: async (video) => {
           if (isMountedRef.current) {
@@ -460,10 +481,6 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
           if (isMountedRef.current) {
             Alert.alert('Error', 'Failed to record video');
           }
-          if (sensorStartTimeout.current) {
-            clearTimeout(sensorStartTimeout.current);
-            sensorStartTimeout.current = null;
-          }
           if (isMountedRef.current) {
             setIsRecording(false);
             stopTimer();
@@ -472,34 +489,10 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
           }
         },
       });
-
-      sensorStartTimeout.current = setTimeout(() => {
-        if (!isMountedRef.current) {
-          return;
-        }
-        sensorStartTimeout.current = null;
-        recordingStartTime.current = Date.now();
-        
-        startTimer();
-        startGPSDataCollection();
-        startGyroscopeDataCollection();
-        resetStats();
-        
-        const now = new Date();
-        startTimeRef.current = now.toLocaleTimeString('en-US', { 
-          hour: '2-digit', 
-          minute: '2-digit',
-          hour12: true 
-        });
-      }, 900);
     } catch (error) {
       console.error('Start recording error:', error);
       if (isMountedRef.current) {
         Alert.alert('Error', 'Failed to start recording');
-      }
-      if (sensorStartTimeout.current) {
-        clearTimeout(sensorStartTimeout.current);
-        sensorStartTimeout.current = null;
       }
       if (isMountedRef.current) {
         setIsRecording(false);
@@ -516,11 +509,6 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     try {
       if (!isMountedRef.current) return;
       setIsProcessing(true);
-      
-      if (sensorStartTimeout.current) {
-        clearTimeout(sensorStartTimeout.current);
-        sensorStartTimeout.current = null;
-      }
       
       stopGPSDataCollection();
       stopGyroscopeDataCollection();
@@ -566,10 +554,6 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
                         text: 'Yes', 
                         onPress: async () => {
                           try {
-                            if (sensorStartTimeout.current) {
-                              clearTimeout(sensorStartTimeout.current);
-                              sensorStartTimeout.current = null;
-                            }
                             if (camera.current) {
                               await camera.current.stopRecording();
                             }
@@ -624,7 +608,9 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
           zoom={zoom}
           videoHdr={hdrEnabled}
           photoHdr={photoHdrEnabled}
-          exposure={settings.camera.exposureMode === 'manual' ? settings.camera.exposure : undefined}
+          exposure={settings.camera.exposureMode === 'manual' 
+            ? (settings.camera.exposureMin + settings.camera.exposureMax) / 2
+            : undefined}
         />
         
         <FocusIndicator

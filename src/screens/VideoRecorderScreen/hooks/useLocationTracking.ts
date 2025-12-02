@@ -20,7 +20,7 @@ interface UseLocationTrackingReturn {
   location: Location | null;
   gpsDataRef: React.MutableRefObject<GPSDataPoint[]>;
   totalDistanceRef: React.MutableRefObject<number>;
-  startGPSDataCollection: () => void;
+  startGPSDataCollection: (startTimestamp?: number) => void;
   stopGPSDataCollection: () => void;
 }
 
@@ -61,6 +61,7 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
   const gpsCollectionInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const totalDistanceRef = useRef<number>(0);
   const permissionDeniedRef = useRef<boolean>(false);
+  const recordingStartTimeRef = useRef<number | null>(null);
 
   const getUTCTimestamp = (): number => {
     try {
@@ -109,9 +110,11 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
     );
   }, [settings.gps.accuracy, settings.gps.distanceFilter, settings.gps.updateInterval]);
 
-  const startGPSDataCollection = useCallback(() => {
+  const startGPSDataCollection = useCallback((startTimestamp?: number) => {
     gpsDataRef.current = [];
     totalDistanceRef.current = 0;
+    const recordingStartTime = startTimestamp || Date.now();
+    recordingStartTimeRef.current = recordingStartTime;
     
     if (!settings.metadata.gpsSync) return;
     
@@ -123,54 +126,122 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
     const samplingInterval = settings.gps.updateInterval * 1000;
     const enableHighAccuracy = settings.gps.accuracy === 'high';
 
-    gpsCollectionInterval.current = setInterval(() => {
-      if (permissionDeniedRef.current) {
-        if (gpsCollectionInterval.current) {
-          clearInterval(gpsCollectionInterval.current);
-          gpsCollectionInterval.current = null;
-        }
-        return;
-      }
+    // Capture first GPS point immediately at start time
+    Geolocation.getCurrentPosition(
+      (position) => {
+        const initialTimestamp = recordingStartTime;
+        const { latitude, longitude, accuracy } = position.coords;
 
-      Geolocation.getCurrentPosition(
-        (position) => {
-          const utcTimestamp = getUTCTimestamp();
-          const { latitude, longitude, accuracy } = position.coords;
+        gpsDataRef.current.push({
+          timestamp: initialTimestamp,
+          latitude,
+          longitude,
+          accuracy,
+        });
 
-          if (gpsDataRef.current.length > 0) {
-            const prevPoint = gpsDataRef.current[gpsDataRef.current.length - 1];
-            const distance = calculateDistance(
-              prevPoint.latitude,
-              prevPoint.longitude,
-              latitude,
-              longitude
-            );
-            totalDistanceRef.current += distance;
-          }
-
-          gpsDataRef.current.push({
-            timestamp: utcTimestamp,
-            latitude,
-            longitude,
-            accuracy,
-          });
-        },
-        (error) => {
-          // Check for permission denied (code 1 or PERMISSION_DENIED constant)
-          if (error.code === 1 || error.code === error.PERMISSION_DENIED) {
-            permissionDeniedRef.current = true;
+        // Then continue collecting at intervals
+        gpsCollectionInterval.current = setInterval(() => {
+          if (permissionDeniedRef.current) {
             if (gpsCollectionInterval.current) {
               clearInterval(gpsCollectionInterval.current);
               gpsCollectionInterval.current = null;
             }
-            console.warn('GPS collection stopped: Location permission denied');
-          } else {
-            console.error('GPS collection error:', error);
+            return;
           }
-        },
-        { enableHighAccuracy, timeout: 20000, maximumAge: 0 }
-      );
-    }, samplingInterval);
+
+          Geolocation.getCurrentPosition(
+            (position) => {
+              const utcTimestamp = getUTCTimestamp();
+              const { latitude, longitude, accuracy } = position.coords;
+
+              if (gpsDataRef.current.length > 0) {
+                const prevPoint = gpsDataRef.current[gpsDataRef.current.length - 1];
+                const distance = calculateDistance(
+                  prevPoint.latitude,
+                  prevPoint.longitude,
+                  latitude,
+                  longitude
+                );
+                totalDistanceRef.current += distance;
+              }
+
+              gpsDataRef.current.push({
+                timestamp: utcTimestamp,
+                latitude,
+                longitude,
+                accuracy,
+              });
+            },
+            (error) => {
+              // Check for permission denied (code 1 or PERMISSION_DENIED constant)
+              if (error.code === 1 || error.code === error.PERMISSION_DENIED) {
+                permissionDeniedRef.current = true;
+                if (gpsCollectionInterval.current) {
+                  clearInterval(gpsCollectionInterval.current);
+                  gpsCollectionInterval.current = null;
+                }
+                console.warn('GPS collection stopped: Location permission denied');
+              } else {
+                console.error('GPS collection error:', error);
+              }
+            },
+            { enableHighAccuracy, timeout: 20000, maximumAge: 0 }
+          );
+        }, samplingInterval);
+      },
+      (error) => {
+        console.error('Initial GPS collection error:', error);
+        // Still start the interval even if initial capture fails
+        gpsCollectionInterval.current = setInterval(() => {
+          if (permissionDeniedRef.current) {
+            if (gpsCollectionInterval.current) {
+              clearInterval(gpsCollectionInterval.current);
+              gpsCollectionInterval.current = null;
+            }
+            return;
+          }
+
+          Geolocation.getCurrentPosition(
+            (position) => {
+              const utcTimestamp = getUTCTimestamp();
+              const { latitude, longitude, accuracy } = position.coords;
+
+              if (gpsDataRef.current.length > 0) {
+                const prevPoint = gpsDataRef.current[gpsDataRef.current.length - 1];
+                const distance = calculateDistance(
+                  prevPoint.latitude,
+                  prevPoint.longitude,
+                  latitude,
+                  longitude
+                );
+                totalDistanceRef.current += distance;
+              }
+
+              gpsDataRef.current.push({
+                timestamp: utcTimestamp,
+                latitude,
+                longitude,
+                accuracy,
+              });
+            },
+            (error) => {
+              if (error.code === 1 || error.code === error.PERMISSION_DENIED) {
+                permissionDeniedRef.current = true;
+                if (gpsCollectionInterval.current) {
+                  clearInterval(gpsCollectionInterval.current);
+                  gpsCollectionInterval.current = null;
+                }
+                console.warn('GPS collection stopped: Location permission denied');
+              } else {
+                console.error('GPS collection error:', error);
+              }
+            },
+            { enableHighAccuracy, timeout: 20000, maximumAge: 0 }
+          );
+        }, samplingInterval);
+      },
+      { enableHighAccuracy, timeout: 20000, maximumAge: 0 }
+    );
   }, [settings.gps.updateInterval, settings.gps.accuracy, settings.metadata.gpsSync]);
 
   const stopGPSDataCollection = useCallback(() => {

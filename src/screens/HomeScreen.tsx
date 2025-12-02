@@ -58,6 +58,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
   const [exposureMode, setExposureMode] = useState<'auto' | 'manual'>('manual');
   const [exposure, setExposure] = useState(0);
+  const [exposureMin, setExposureMin] = useState(-2);
+  const [exposureMax, setExposureMax] = useState(2);
   const [isoMode, setIsoMode] = useState<'auto' | 'manual'>('manual');
   const [iso, setIso] = useState(100);
   const [hdr, setHdr] = useState(false);
@@ -202,7 +204,13 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       
       if (loadedSettings.camera) {
         setExposureMode(loadedSettings.camera.exposureMode);
-        setExposure(loadedSettings.camera.exposure);
+        const minExposure = loadedSettings.camera.exposureMin ?? -2;
+        const maxExposure = loadedSettings.camera.exposureMax ?? 2;
+        setExposureMin(minExposure);
+        setExposureMax(maxExposure);
+        // Set exposure to midpoint of the range
+        const midpoint = (minExposure + maxExposure) / 2;
+        setExposure(midpoint);
         setIsoMode(loadedSettings.camera.isoMode);
         setIso(loadedSettings.camera.iso);
         setHdr(loadedSettings.camera.hdr || false);
@@ -236,12 +244,14 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   };
 
   const startRecording = () => {
-    const currentSettings: RecordingSettings = {
+      const currentSettings: RecordingSettings = {
       ...settings,
       camera: {
         ...settings.camera,
         exposureMode,
         exposure,
+        exposureMin,
+        exposureMax,
         isoMode,
         iso,
         hdr,
@@ -332,12 +342,50 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   };
 
   const handleExposureChange = async (value: number) => {
-    setExposure(value);
+    // Clamp exposure value between min and max
+    const clampedValue = Math.max(exposureMin, Math.min(value, exposureMax));
+    setExposure(clampedValue);
     const newSettings = {
       ...settings,
       camera: {
         ...settings.camera,
-        exposure: value,
+        exposure: clampedValue,
+      },
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+  };
+
+  const handleExposureMinChange = async (value: number) => {
+    const clampedValue = Math.min(value, exposureMax);
+    setExposureMin(clampedValue);
+    // Set exposure to midpoint of the range
+    const midpoint = (clampedValue + exposureMax) / 2;
+    setExposure(midpoint);
+    const newSettings = {
+      ...settings,
+      camera: {
+        ...settings.camera,
+        exposureMin: clampedValue,
+        exposure: midpoint,
+      },
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+  };
+
+  const handleExposureMaxChange = async (value: number) => {
+    const clampedValue = Math.max(value, exposureMin);
+    setExposureMax(clampedValue);
+    // Set exposure to midpoint of the range
+    const midpoint = (exposureMin + clampedValue) / 2;
+    setExposure(midpoint);
+    const newSettings = {
+      ...settings,
+      camera: {
+        ...settings.camera,
+        exposureMax: clampedValue,
+        exposure: midpoint,
       },
     };
     setSettings(newSettings);
@@ -441,10 +489,12 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
           <ExposureSetting
             exposureMode={exposureMode}
-            exposure={exposure}
+            exposureMin={exposureMin}
+            exposureMax={exposureMax}
             device={device}
             onModeChange={handleExposureModeChange}
-            onExposureChange={handleExposureChange}
+            onExposureMinChange={handleExposureMinChange}
+            onExposureMaxChange={handleExposureMaxChange}
           />
 
           <ISOSetting

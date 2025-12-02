@@ -7,19 +7,26 @@ import { AutoManualToggle } from './AutoManualToggle';
 
 interface ExposureSettingProps {
   exposureMode: 'auto' | 'manual';
-  exposure: number;
+  exposureMin: number;
+  exposureMax: number;
   device: CameraDevice | undefined;
   onModeChange: (mode: 'auto' | 'manual') => void;
-  onExposureChange: (value: number) => void;
+  onExposureMinChange: (value: number) => void;
+  onExposureMaxChange: (value: number) => void;
 }
 
 export const ExposureSetting: React.FC<ExposureSettingProps> = ({
   exposureMode,
-  exposure,
+  exposureMin,
+  exposureMax,
   device,
   onModeChange,
-  onExposureChange,
+  onExposureMinChange,
+  onExposureMaxChange,
 }) => {
+  const minExposure = device?.minExposure ?? -2;
+  const maxExposure = device?.maxExposure ?? 2;
+
   return (
     <View style={styles.settingCard}>
       <SettingRow icon="☀️" label="Exposure" color="#F59E0B">
@@ -27,21 +34,41 @@ export const ExposureSetting: React.FC<ExposureSettingProps> = ({
       </SettingRow>
       {exposureMode === 'manual' && (
         <>
+          <Text style={styles.sectionLabel}>Exposure Range</Text>
+          
+          <Text style={styles.sliderTitle}>Minimum Exposure</Text>
           <Slider
             style={styles.slider}
-            minimumValue={device?.minExposure ?? -2}
-            maximumValue={device?.maxExposure ?? 2}
-            value={exposure}
-            onValueChange={onExposureChange}
+            minimumValue={minExposure}
+            maximumValue={exposureMax}
+            value={exposureMin}
+            onValueChange={onExposureMinChange}
             minimumTrackTintColor="#0EA5E9"
             maximumTrackTintColor="#E5E7EB"
             thumbTintColor="#0EA5E9"
           />
           <View style={styles.sliderLabels}>
-            <Text style={styles.sliderLabel}>EV {(device?.minExposure ?? -2).toFixed(1)}</Text>
-            <Text style={styles.sliderLabel}>EV {(device?.maxExposure ?? 2).toFixed(1)}</Text>
+            <Text style={styles.sliderLabel}>EV {minExposure.toFixed(1)}</Text>
+            <Text style={styles.sliderLabel}>EV {exposureMax.toFixed(1)}</Text>
           </View>
-          <Text style={styles.sliderValue}>Current: EV {exposure.toFixed(2)}</Text>
+          <Text style={styles.sliderValue}>Min: EV {exposureMin.toFixed(2)}</Text>
+
+          <Text style={styles.sliderTitle}>Maximum Exposure</Text>
+          <Slider
+            style={styles.slider}
+            minimumValue={exposureMin}
+            maximumValue={maxExposure}
+            value={exposureMax}
+            onValueChange={onExposureMaxChange}
+            minimumTrackTintColor="#0EA5E9"
+            maximumTrackTintColor="#E5E7EB"
+            thumbTintColor="#0EA5E9"
+          />
+          <View style={styles.sliderLabels}>
+            <Text style={styles.sliderLabel}>EV {exposureMin.toFixed(1)}</Text>
+            <Text style={styles.sliderLabel}>EV {maxExposure.toFixed(1)}</Text>
+          </View>
+          <Text style={styles.sliderValue}>Max: EV {exposureMax.toFixed(2)}</Text>
         </>
       )}
     </View>
@@ -80,6 +107,23 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
     marginTop: 8,
+    marginBottom: 16,
+  },
+  sectionLabel: {
+    fontSize: 12,
+    color: '#6B7280',
+    fontWeight: '600',
+    marginTop: 8,
+    marginBottom: 12,
+    paddingHorizontal: 16,
+  },
+  sliderTitle: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    fontWeight: '600',
+    marginTop: 8,
+    marginBottom: 4,
+    paddingHorizontal: 16,
   },
 });
 
