@@ -52,8 +52,8 @@ export const defaultSettings: RecordingSettings = {
   camera: {
     exposureMode: 'manual',
     exposure: 0,
-    exposureMin: -2,
-    exposureMax: 2,
+    exposureMin: 0,
+    exposureMax: 0,
     isoMode: 'manual',
     iso: 100,
     hdr: false,

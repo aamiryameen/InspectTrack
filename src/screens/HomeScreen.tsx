@@ -7,12 +7,19 @@ import {
   ScrollView,
   ActivityIndicator,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Camera, useCameraDevice, useCameraFormat } from 'react-native-vision-camera';
 import Orientation from 'react-native-orientation-locker';
-import { loadSettings, saveSettings, RecordingSettings, defaultSettings } from '../utils/settingsUtils';
+import {
+  loadSettings,
+  saveSettings,
+  RecordingSettings,
+  defaultSettings,
+} from '../utils/settingsUtils';
 import {
   CameraPreview,
   ExposureSetting,
@@ -58,8 +65,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
   const [exposureMode, setExposureMode] = useState<'auto' | 'manual'>('manual');
   const [exposure, setExposure] = useState(0);
-  const [exposureMin, setExposureMin] = useState(-2);
-  const [exposureMax, setExposureMax] = useState(2);
+  const [exposureMin, setExposureMin] = useState(defaultSettings.camera.exposureMin);
+  const [exposureMax, setExposureMax] = useState(defaultSettings.camera.exposureMax);
   const [isoMode, setIsoMode] = useState<'auto' | 'manual'>('manual');
   const [iso, setIso] = useState(100);
   const [hdr, setHdr] = useState(false);
@@ -67,6 +74,43 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [zoom, setZoom] = useState(1);
   const [selectedResolution, setSelectedResolution] = useState<'720p' | '1080p' | '4K'>('1080p');
   const [selectedFrameRate, setSelectedFrameRate] = useState(30);
+
+  const resolveFallbackExposure = (
+    candidate: number | undefined,
+    stored: number | undefined,
+    defaultValue: number,
+  ) => {
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+      return candidate;
+    }
+    if (typeof stored === 'number' && Number.isFinite(stored)) {
+      return stored;
+    }
+    return defaultValue;
+  };
+
+  const fallbackMin = resolveFallbackExposure(
+    device?.minExposure,
+    settings.camera.exposureMin,
+    defaultSettings.camera.exposureMin,
+  );
+  const fallbackMax = resolveFallbackExposure(
+    device?.maxExposure,
+    settings.camera.exposureMax,
+    defaultSettings.camera.exposureMax,
+  );
+
+  let hardwareMinExposure = fallbackMin;
+  let hardwareMaxExposure = fallbackMax;
+  if (hardwareMinExposure > hardwareMaxExposure) {
+    hardwareMinExposure = hardwareMaxExposure;
+  }
+  const getExposureMidpoint = (minVal: number, maxVal: number) => {
+    const midpoint = (minVal + maxVal) / 2;
+    return Math.max(hardwareMinExposure, Math.min(midpoint, hardwareMaxExposure));
+  };
+  console.log('hardwareMinExposure', hardwareMinExposure);
+  console.log('hardwareMaxExposure', hardwareMaxExposure);
 
   const [selectedLens, setSelectedLens] = useState('1x');
   const [lensExpanded, setLensExpanded] = useState(false);
@@ -179,54 +223,82 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   useEffect(() => {
     const initializeSettings = async () => {
       const loadedSettings = await loadSettings();
-      
+      let updatedSettings = loadedSettings;
+      let shouldPersist = false;
+
+      let nextFrameRate = updatedSettings.frameRate.fps;
+
       if (device) {
-        const validatedFps = validateAndAdjustFps(loadedSettings.frameRate.fps);
-        if (validatedFps !== loadedSettings.frameRate.fps) {
-          const updatedSettings = {
-            ...loadedSettings,
+        const validatedFps = validateAndAdjustFps(updatedSettings.frameRate.fps);
+        nextFrameRate = validatedFps;
+
+        if (validatedFps !== updatedSettings.frameRate.fps) {
+          updatedSettings = {
+            ...updatedSettings,
             frameRate: {
-              ...loadedSettings.frameRate,
+              ...updatedSettings.frameRate,
               fps: validatedFps,
             },
           };
-          setSettings(updatedSettings);
-          await saveSettings(updatedSettings);
-          setSelectedFrameRate(validatedFps);
-        } else {
-          setSettings(loadedSettings);
-          setSelectedFrameRate(loadedSettings.frameRate.fps);
+          shouldPersist = true;
         }
-      } else {
-        setSettings(loadedSettings);
-        setSelectedFrameRate(loadedSettings.frameRate.fps);
       }
-      
-      if (loadedSettings.camera) {
-        setExposureMode(loadedSettings.camera.exposureMode);
-        const minExposure = loadedSettings.camera.exposureMin ?? -2;
-        const maxExposure = loadedSettings.camera.exposureMax ?? 2;
-        setExposureMin(minExposure);
-        setExposureMax(maxExposure);
-        // Set exposure to midpoint of the range
-        const midpoint = (minExposure + maxExposure) / 2;
-        setExposure(midpoint);
-        setIsoMode(loadedSettings.camera.isoMode);
-        setIso(loadedSettings.camera.iso);
-        setHdr(loadedSettings.camera.hdr || false);
-        setTapToFocusEnabled(loadedSettings.camera.tapToFocusEnabled ?? true);
+
+      setSelectedFrameRate(nextFrameRate);
+
+      if (updatedSettings.camera) {
+        const rawMin = updatedSettings.camera.exposureMin ?? defaultSettings.camera.exposureMin;
+        const rawMax = updatedSettings.camera.exposureMax ?? defaultSettings.camera.exposureMax;
+        const boundedMin = Math.max(hardwareMinExposure, Math.min(rawMin, hardwareMaxExposure));
+        const boundedMax = Math.max(boundedMin, Math.min(rawMax, hardwareMaxExposure));
+        const existingExposure =
+          typeof updatedSettings.camera.exposure === 'number'
+            ? updatedSettings.camera.exposure
+            : defaultSettings.camera.exposure;
+        const boundedExposure = getExposureMidpoint(boundedMin, boundedMax);
+
+        if (
+          boundedMin !== updatedSettings.camera.exposureMin ||
+          boundedMax !== updatedSettings.camera.exposureMax ||
+          boundedExposure !== updatedSettings.camera.exposure
+        ) {
+          updatedSettings = {
+            ...updatedSettings,
+            camera: {
+              ...updatedSettings.camera,
+              exposureMin: boundedMin,
+              exposureMax: boundedMax,
+              exposure: boundedExposure,
+            },
+          };
+          shouldPersist = true;
+        }
+
+        setExposureMode(updatedSettings.camera.exposureMode);
+        setIsoMode(updatedSettings.camera.isoMode);
+        setIso(updatedSettings.camera.iso);
+        setHdr(updatedSettings.camera.hdr || false);
+        setTapToFocusEnabled(updatedSettings.camera.tapToFocusEnabled ?? true);
+        setExposureMin(boundedMin);
+        setExposureMax(boundedMax);
+        setExposure(boundedExposure);
       }
-      
-      setSelectedResolution(loadedSettings.video.resolution);
-      
+
+      setSettings(updatedSettings);
+      setSelectedResolution(updatedSettings.video.resolution);
       setSelectedLens('1x');
       setZoom(1);
+
+      if (shouldPersist) {
+        await saveSettings(updatedSettings);
+      }
+
       setIsLoadingSettings(false);
     };
 
     initializeSettings();
     requestCameraPermission();
-  }, [device]);
+  }, [device, hardwareMinExposure, hardwareMaxExposure]);
 
   useEffect(() => {
     Orientation.lockToPortrait();
@@ -342,8 +414,9 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   };
 
   const handleExposureChange = async (value: number) => {
-    // Clamp exposure value between min and max
-    const clampedValue = Math.max(exposureMin, Math.min(value, exposureMax));
+    // Clamp exposure value between hardware capabilities and selected range
+    const boundedValue = Math.max(hardwareMinExposure, Math.min(value, hardwareMaxExposure));
+    const clampedValue = Math.max(exposureMin, Math.min(boundedValue, exposureMax));
     setExposure(clampedValue);
     const newSettings = {
       ...settings,
@@ -357,17 +430,17 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   };
 
   const handleExposureMinChange = async (value: number) => {
-    const clampedValue = Math.min(value, exposureMax);
+    const upperBound = Math.min(exposureMax, hardwareMaxExposure);
+    const clampedValue = Math.max(hardwareMinExposure, Math.min(value, upperBound));
     setExposureMin(clampedValue);
-    // Set exposure to midpoint of the range
-    const midpoint = (clampedValue + exposureMax) / 2;
-    setExposure(midpoint);
+    const newExposure = getExposureMidpoint(clampedValue, exposureMax);
+    setExposure(newExposure);
     const newSettings = {
       ...settings,
       camera: {
         ...settings.camera,
         exposureMin: clampedValue,
-        exposure: midpoint,
+        exposure: newExposure,
       },
     };
     setSettings(newSettings);
@@ -375,17 +448,17 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   };
 
   const handleExposureMaxChange = async (value: number) => {
-    const clampedValue = Math.max(value, exposureMin);
+    const lowerBound = Math.max(exposureMin, hardwareMinExposure);
+    const clampedValue = Math.min(hardwareMaxExposure, Math.max(value, lowerBound));
     setExposureMax(clampedValue);
-    // Set exposure to midpoint of the range
-    const midpoint = (exposureMin + clampedValue) / 2;
-    setExposure(midpoint);
+    const newExposure = getExposureMidpoint(exposureMin, clampedValue);
+    setExposure(newExposure);
     const newSettings = {
       ...settings,
       camera: {
         ...settings.camera,
         exposureMax: clampedValue,
-        exposure: midpoint,
+        exposure: newExposure,
       },
     };
     setSettings(newSettings);
@@ -470,81 +543,94 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       <StatusBar barStyle="dark-content" backgroundColor="#f5f5f5" />
 
       <View style={styles.header}></View>
-    
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        <CameraPreview
-          cameraRef={camera}
-          device={device}
-          format={format}
-          settings={settings}
-          zoom={zoom}
-          selectedLens={selectedLens}
-          hdr={hdr}
-          onStartRecording={startRecording}
-          onDownloadFile={navigateToDownloadFile}
-        />
 
-        <View style={styles.settingsContainer}>
-          <Text style={styles.sectionTitle}>Camera Settings</Text>
-
-          <ExposureSetting
-            exposureMode={exposureMode}
-            exposureMin={exposureMin}
-            exposureMax={exposureMax}
-            device={device}
-            onModeChange={handleExposureModeChange}
-            onExposureMinChange={handleExposureMinChange}
-            onExposureMaxChange={handleExposureMaxChange}
-          />
-
-          <ISOSetting
-            isoMode={isoMode}
-            iso={iso}
-            format={format}
-            onModeChange={handleIsoModeChange}
-            onIsoChange={handleIsoChange}
-          />
-
-          <HDRSetting hdr={hdr} format={format} onToggle={handleHdrToggle} />
-
-          <LensSetting
-            selectedLens={selectedLens}
-            lensOptions={lensOptions}
-            isExpanded={lensExpanded}
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoiding}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+      >
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <CameraPreview
+            cameraRef={camera}
             device={device}
             format={format}
+            settings={settings}
             zoom={zoom}
-            onToggleExpand={() => setLensExpanded(!lensExpanded)}
-            onSelectLens={handleLensChange}
+            selectedLens={selectedLens}
+            hdr={hdr}
+            onStartRecording={startRecording}
+            onDownloadFile={navigateToDownloadFile}
           />
 
-          <ResolutionSetting
-            resolution={settings.video.resolution}
-            resolutionOptions={resolutionOptions}
-            isExpanded={resolutionExpanded}
-            format={format}
-            onToggleExpand={() => setResolutionExpanded(!resolutionExpanded)}
-            onSelectResolution={handleResolutionChange}
-          />
+          <View style={styles.settingsContainer}>
+            <Text style={styles.sectionTitle}>Camera Settings</Text>
 
-          <FrameRateSetting
-            frameRate={settings.frameRate.fps}
-            frameRateOptions={frameRateOptions}
-            isExpanded={frameRateExpanded}
-            format={format}
-            onToggleExpand={() => setFrameRateExpanded(!frameRateExpanded)}
-            onSelectFrameRate={handleFrameRateChange}
-          />
+            <ExposureSetting
+              exposureMode={exposureMode}
+              exposureMin={exposureMin}
+              exposureMax={exposureMax}
+              minLimit={hardwareMinExposure}
+              maxLimit={hardwareMaxExposure}
+              device={device}
+              onModeChange={handleExposureModeChange}
+              onExposureMinChange={handleExposureMinChange}
+              onExposureMaxChange={handleExposureMaxChange}
+            />
 
-          <FocusSetting
-            tapToFocusEnabled={tapToFocusEnabled}
-            device={device}
-            onToggle={handleTapToFocusToggle}
-          />
+            <ISOSetting
+              isoMode={isoMode}
+              iso={iso}
+              format={format}
+              onModeChange={handleIsoModeChange}
+              onIsoChange={handleIsoChange}
+            />
 
-          <WhiteBalanceSetting />
-        </View>
-      </ScrollView>
+            <HDRSetting hdr={hdr} format={format} onToggle={handleHdrToggle} />
+
+            <LensSetting
+              selectedLens={selectedLens}
+              lensOptions={lensOptions}
+              isExpanded={lensExpanded}
+              device={device}
+              format={format}
+              zoom={zoom}
+              onToggleExpand={() => setLensExpanded(!lensExpanded)}
+              onSelectLens={handleLensChange}
+            />
+
+            <ResolutionSetting
+              resolution={settings.video.resolution}
+              resolutionOptions={resolutionOptions}
+              isExpanded={resolutionExpanded}
+              format={format}
+              onToggleExpand={() => setResolutionExpanded(!resolutionExpanded)}
+              onSelectResolution={handleResolutionChange}
+            />
+
+            <FrameRateSetting
+              frameRate={settings.frameRate.fps}
+              frameRateOptions={frameRateOptions}
+              isExpanded={frameRateExpanded}
+              format={format}
+              onToggleExpand={() => setFrameRateExpanded(!frameRateExpanded)}
+              onSelectFrameRate={handleFrameRateChange}
+            />
+
+            <FocusSetting
+              tapToFocusEnabled={tapToFocusEnabled}
+              device={device}
+              onToggle={handleTapToFocusToggle}
+            />
+
+            <WhiteBalanceSetting />
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 };
@@ -597,6 +683,12 @@ const styles = StyleSheet.create({
     color: '#1F2937',
     marginBottom: 16,
     marginTop: 8,
+  },
+  keyboardAvoiding: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 32,
   },
 });
 

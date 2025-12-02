@@ -31,6 +31,10 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
   const [cameraLayout, setCameraLayout] = useState({ width: 0, height: 0 });
 
   const fps = format ? Math.min(format.maxFps, settings.frameRate.fps) : settings.frameRate.fps;
+  const manualExposureValue =
+    settings.camera.exposureMode === 'manual' && typeof settings.camera.exposure === 'number'
+      ? settings.camera.exposure
+      : undefined;
   
   const videoHdrEnabled = hdr && format?.supportsVideoHdr;
   const photoHdrEnabled = hdr && format?.supportsPhotoHdr;
@@ -122,7 +126,7 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
                 fps={fps}
                 videoHdr={videoHdrEnabled}
                 photoHdr={photoHdrEnabled}
-                exposure={settings.camera.exposureMode === 'manual' ? settings.camera.exposure : undefined}
+                exposure={manualExposureValue}
               />
             </Pressable>
         

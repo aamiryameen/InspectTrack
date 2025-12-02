@@ -88,6 +88,10 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const fps = format ? Math.min(format.maxFps, settings.frameRate.fps) : settings.frameRate.fps;
   const hdrEnabled = settings.camera.hdr && format?.supportsVideoHdr;
   const photoHdrEnabled = settings.camera.hdr && format?.supportsPhotoHdr;
+  const manualExposureValue =
+    settings.camera.exposureMode === 'manual' && typeof settings.camera.exposure === 'number'
+      ? settings.camera.exposure
+      : undefined;
 
   const { hasPermission: hasCameraPermission, requestPermission: requestCameraPermission } = useCameraPermission();
   const { hasPermission: hasMicrophonePermission, requestPermission: requestMicrophonePermission } = useMicrophonePermission();
@@ -608,9 +612,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
           zoom={zoom}
           videoHdr={hdrEnabled}
           photoHdr={photoHdrEnabled}
-          exposure={settings.camera.exposureMode === 'manual' 
-            ? (settings.camera.exposureMin + settings.camera.exposureMax) / 2
-            : undefined}
+          exposure={manualExposureValue}
         />
         
         <FocusIndicator
