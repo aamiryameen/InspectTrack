@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TextInput, Keyboard } from 'react-native';
 import { CameraDevice } from 'react-native-vision-camera';
+import { useFocusEffect } from '@react-navigation/native';
 import { defaultSettings } from '../../../utils/settingsUtils';
 import { SettingRow } from './SettingRow';
 import { AutoManualToggle } from './AutoManualToggle';
@@ -60,6 +61,8 @@ export const ExposureSetting: React.FC<ExposureSettingProps> = ({
   const [maxError, setMaxError] = useState<string | null>(null);
   const minValidationTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const maxValidationTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const minInputRef = useRef<TextInput>(null);
+  const maxInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     setMinInput(formatExposureValue(exposureMin));
@@ -79,6 +82,30 @@ export const ExposureSetting: React.FC<ExposureSettingProps> = ({
       }
     };
   }, []);
+
+  // Blur inputs when component mounts or when screen comes into focus
+  useEffect(() => {
+    // Blur inputs on mount to prevent auto-focus
+    const timer = setTimeout(() => {
+      minInputRef.current?.blur();
+      maxInputRef.current?.blur();
+      Keyboard.dismiss();
+    }, 100);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Blur inputs when screen comes into focus (navigate back)
+  useFocusEffect(
+    React.useCallback(() => {
+      // Blur inputs when navigating back to the screen
+      const timer = setTimeout(() => {
+        minInputRef.current?.blur();
+        maxInputRef.current?.blur();
+        Keyboard.dismiss();
+      }, 100);
+      return () => clearTimeout(timer);
+    }, [])
+  );
 
   const parseInputValue = (value: string): number | null => {
     if (value.trim() === '') {
@@ -209,6 +236,7 @@ export const ExposureSetting: React.FC<ExposureSettingProps> = ({
             <View style={styles.inputCard}>
               <Text style={styles.inputLabel}>Minimum Exposure</Text>
               <TextInput
+                ref={minInputRef}
                 style={[styles.textInput, minError && styles.inputError]}
                 value={minInput}
                 onChangeText={text => {
@@ -225,6 +253,7 @@ export const ExposureSetting: React.FC<ExposureSettingProps> = ({
                 placeholder={`Enter Minimum Exposure`}
                 placeholderTextColor="#9CA3AF"
                 testID="exposure-min-input"
+                autoFocus={false}
               />
            
               {minError && <Text style={styles.errorText}>{minError}</Text>}
@@ -233,6 +262,7 @@ export const ExposureSetting: React.FC<ExposureSettingProps> = ({
             <View style={styles.inputCard}>
               <Text style={styles.inputLabel}>Maximum Exposure</Text>
               <TextInput
+                ref={maxInputRef}
                 style={[styles.textInput, maxError && styles.inputError]}
                 value={maxInput}
                 onChangeText={text => {
@@ -249,6 +279,7 @@ export const ExposureSetting: React.FC<ExposureSettingProps> = ({
                 placeholder={`Enter Maximum Exposure`}
                 placeholderTextColor="#9CA3AF"
                 testID="exposure-max-input"
+                autoFocus={false}
               />
          
               {maxError && <Text style={styles.errorText}>{maxError}</Text>}
