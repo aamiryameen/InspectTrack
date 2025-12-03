@@ -1,3 +1,4 @@
+import Firebase
 import UIKit
 import React
 import React_RCTAppDelegate
@@ -15,7 +16,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
     // Firebase is configured automatically by React Native Firebase via GoogleService-Info.plist
-
+ FirebaseApp.configure()
     let delegate = ReactNativeDelegate()
     let factory = RCTReactNativeFactory(delegate: delegate)
     delegate.dependencyProvider = RCTAppDependencyProvider()

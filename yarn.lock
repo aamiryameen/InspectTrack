@@ -2203,10 +2203,10 @@
     invariant "^2.2.4"
     nullthrows "^1.1.1"
 
-"@react-navigation/core@^7.13.3":
-  version "7.13.3"
-  resolved "https://registry.yarnpkg.com/@react-navigation/core/-/core-7.13.3.tgz#0414aa3f6f47855a8abef6d65303b773899aee3c"
-  integrity sha512-jW0YKzHA3aFx0e6G2kzz42PWFhTes0hEJNWKaC5cyii9s+QFostplwdVna+/D8e1vCCdMDx9SfFfmx0mj9R86Q==
+"@react-navigation/core@^7.13.5":
+  version "7.13.5"
+  resolved "https://registry.yarnpkg.com/@react-navigation/core/-/core-7.13.5.tgz#9458f1c72a0fa4e2b57a93f532a64582d8fa85c5"
+  integrity sha512-4aTSHPWa3oQPLoanFYnzR2tyQmVRD6qsWsPigW8qAdSDA0ngl/h9dl2h9XvDPcOb7PKeVVVhbukRyytkXKf50w==
   dependencies:
     "@react-navigation/routers" "^7.5.2"
     escape-string-regexp "^4.0.0"
@@ -2217,31 +2217,31 @@
     use-latest-callback "^0.2.4"
     use-sync-external-store "^1.5.0"
 
-"@react-navigation/elements@^2.8.5":
-  version "2.8.5"
-  resolved "https://registry.yarnpkg.com/@react-navigation/elements/-/elements-2.8.5.tgz#55ff54cff64a38a3ca05054a78cb6267640c0835"
-  integrity sha512-SJqYcbW08DxULnHpUxJSULaYPxOnfReWmWWqzlS9pjdTlOdrBcyfepCkLXKnTXTr7u61nY0r14aAKyLjVhzBMQ==
+"@react-navigation/elements@^2.9.1":
+  version "2.9.1"
+  resolved "https://registry.yarnpkg.com/@react-navigation/elements/-/elements-2.9.1.tgz#4cd2d24b719668d2a2c94153e08a672f706f3ab9"
+  integrity sha512-Jn2F+tXiQOY8L5mLMety6tfQUwBA8daz3whQmI8utvFvtSdfutOqH9P5ZC/QjlZEY5zcA4ZeuDzM0LKkrtFgqw==
   dependencies:
     color "^4.2.3"
     use-latest-callback "^0.2.4"
     use-sync-external-store "^1.5.0"
 
 "@react-navigation/native-stack@^7.6.3":
-  version "7.8.3"
-  resolved "https://registry.yarnpkg.com/@react-navigation/native-stack/-/native-stack-7.8.3.tgz#a9b6e23bf9b6219ea785300b9bb41567a8d00ee6"
-  integrity sha512-NQdXZP4CAP5gOgXhIgd3ifbieu8N7mi1AngiwESyhUFvZNHNl7VNIlaSMzIrDASQxbwHl3eBLxDo1tpI05xHNg==
+  version "7.8.5"
+  resolved "https://registry.yarnpkg.com/@react-navigation/native-stack/-/native-stack-7.8.5.tgz#50a95d79100800f4f7579679ca0fead733f04ff4"
+  integrity sha512-IfAe80IQWlJec2Pri91FRi4EEBIc5+j191XZIJZKpexumCLfT+AKnfc0g3Sr4m0P6jrVVGtKb+XW+2jYj5mWRg==
   dependencies:
-    "@react-navigation/elements" "^2.8.5"
+    "@react-navigation/elements" "^2.9.1"
     color "^4.2.3"
     sf-symbols-typescript "^2.1.0"
     warn-once "^0.1.1"
 
 "@react-navigation/native@^7.1.20":
-  version "7.1.22"
-  resolved "https://registry.yarnpkg.com/@react-navigation/native/-/native-7.1.22.tgz#f97daa0fecfd45a99ddc923ba81b8cf0540bb1bc"
-  integrity sha512-WuaS4iVFfuHIR6wIYcBA/ZF9/++bbtr0cEO7ohinc3PE+7PZuVJr7KgdrAFay3OI6GmqW0cmuUKZ0BPPDwQ7dw==
+  version "7.1.24"
+  resolved "https://registry.yarnpkg.com/@react-navigation/native/-/native-7.1.24.tgz#5fc86889d1358962892d242e20ddb968168ae28d"
+  integrity sha512-L9glh8MywAtD1h6O65Y1alGDi2FsLEBYnXkb9sx3UPSbG7pkWEnLbkEy7rWgi4Vr+DZUS18VmFsCKPmczOWcow==
   dependencies:
-    "@react-navigation/core" "^7.13.3"
+    "@react-navigation/core" "^7.13.5"
     escape-string-regexp "^4.0.0"
     fast-deep-equal "^3.1.3"
     nanoid "^3.3.11"
@@ -3044,9 +3044,9 @@ camelcase@^6.2.0:
   integrity sha512-Gmy6FhYlCY7uOElZUSbxo2UCDH8owEk996gkbrpsgGtrJLM3J7jGxl9Ic7Qwwj4ivOE5AWZWRMecDdF7hqGjFA==
 
 caniuse-lite@^1.0.30001754:
-  version "1.0.30001757"
-  resolved "https://registry.yarnpkg.com/caniuse-lite/-/caniuse-lite-1.0.30001757.tgz#a46ff91449c69522a462996c6aac4ef95d7ccc5e"
-  integrity sha512-r0nnL/I28Zi/yjk1el6ilj27tKcdjLsNqAOZr0yVjWPrSQyHgKI2INaEWw21bAQSv2LXRt1XuCS/GomNpWOxsQ==
+  version "1.0.30001759"
+  resolved "https://registry.yarnpkg.com/caniuse-lite/-/caniuse-lite-1.0.30001759.tgz#d569e7b010372c6b0ca3946e30dada0a2e9d5006"
+  integrity sha512-Pzfx9fOKoKvevQf8oCXoyNRQ5QyxJj+3O0Rqx2V5oxT61KGx8+n6hV/IUyJeifUci2clnmmKVpvtiqRzgiWjSw==
 
 chalk@^4.0.0, chalk@^4.1.0, chalk@^4.1.2:
   version "4.1.2"

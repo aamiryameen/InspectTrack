@@ -15,6 +15,7 @@
 		CPUUSAGE001A68108700A75B9A /* CpuUsageModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = CPUUSAGE002A68108700A75B9A /* CpuUsageModule.swift */; };
 		CPUUSAGE003A68108700A75B9A /* CpuUsageModule.m in Sources */ = {isa = PBXBuildFile; fileRef = CPUUSAGE004A68108700A75B9A /* CpuUsageModule.m */; };
 		DD0C55AA2EDF7F0B00A507EB /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = DD0C55A92EDF7F0B00A507EB /* GoogleService-Info.plist */; };
+		DDBF23552EE06E5000A8B9A3 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = DDBF23542EE06E5000A8B9A3 /* GoogleService-Info.plist */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,6 +32,7 @@
 		CPUUSAGE004A68108700A75B9A /* CpuUsageModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = CpuUsageModule.m; path = InspectTrack/CpuUsageModule.m; sourceTree = "<group>"; };
 		CPUUSAGE005A68108700A75B9A /* InspectTrack-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "InspectTrack-Bridging-Header.h"; path = "InspectTrack/InspectTrack-Bridging-Header.h"; sourceTree = "<group>"; };
 		DD0C55A92EDF7F0B00A507EB /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
+		DDBF23542EE06E5000A8B9A3 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -81,6 +83,7 @@
 		83CBB9F61A601CBA00E9B192 = {
 			isa = PBXGroup;
 			children = (
+				DDBF23542EE06E5000A8B9A3 /* GoogleService-Info.plist */,
 				13B07FAE1A68108700A75B9A /* InspectTrack */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
@@ -177,6 +180,7 @@
 			files = (
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
 				DD0C55AA2EDF7F0B00A507EB /* GoogleService-Info.plist in Resources */,
+				DDBF23552EE06E5000A8B9A3 /* GoogleService-Info.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				75DFFDFE498EADE76ECDAFD3 /* PrivacyInfo.xcprivacy in Resources */,
 			);

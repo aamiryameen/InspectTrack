@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, TextInput } from 'react-native';
 import { CameraDevice } from 'react-native-vision-camera';
 import { defaultSettings } from '../../../utils/settingsUtils';
@@ -31,35 +31,28 @@ export const ExposureSetting: React.FC<ExposureSettingProps> = ({
   onExposureMinChange,
   onExposureMaxChange,
 }) => {
-  // Primary source: device's minExposure/maxExposure from Vision Camera
-  const deviceMin = typeof device?.minExposure === 'number' ? device.minExposure : null;
-  const deviceMax = typeof device?.maxExposure === 'number' ? device.maxExposure : null;
+  // Resolve hardware limits from device or props
+  const resolvedMinLimit = useMemo(() => {
+    if (Number.isFinite(minLimit)) return minLimit;
+    if (typeof device?.minExposure === 'number') return device.minExposure;
+    return defaultSettings.camera.exposureMin;
+  }, [minLimit, device?.minExposure]);
 
-  console.log('device?.minExposure', device?.minExposure)
-  console.log('device?.maxExposure', device?.maxExposure)
-  console.log('minLimit', minLimit)
-  console.log('maxLimit', maxLimit)
-  console.log('defaultSettings.camera.exposureMin', defaultSettings.camera.exposureMin)
-  console.log('defaultSettings.camera.exposureMax', defaultSettings.camera.exposureMax)
+  const resolvedMaxLimit = useMemo(() => {
+    if (Number.isFinite(maxLimit)) return maxLimit;
+    if (typeof device?.maxExposure === 'number') return device.maxExposure;
+    return defaultSettings.camera.exposureMax;
+  }, [maxLimit, device?.maxExposure]);
 
-  // Use device values first, then fall back to passed limits, then defaults
-  const allowedMinExposure =
-    deviceMin !== null
-      ? deviceMin
-      : Number.isFinite(minLimit)
-        ? minLimit
-        : defaultSettings.camera.exposureMin;
+  // Ensure min is always <= max for hardware limits
+  const allowedMinExposure = Math.min(resolvedMinLimit, resolvedMaxLimit);
+  const allowedMaxExposure = Math.max(resolvedMinLimit, resolvedMaxLimit);
 
-  const allowedMaxExposure =
-    deviceMax !== null
-      ? deviceMax
-      : Number.isFinite(maxLimit)
-        ? maxLimit
-        : defaultSettings.camera.exposureMax;
-
-  // Ensure min <= max
-  const finalMinExposure = Math.min(allowedMinExposure, allowedMaxExposure);
-  const finalMaxExposure = Math.max(allowedMinExposure, allowedMaxExposure);
+  // Calculate current exposure midpoint (what gets applied to camera)
+  const currentExposureValue = useMemo(() => {
+    const midpoint = (exposureMin + exposureMax) / 2;
+    return Math.max(allowedMinExposure, Math.min(midpoint, allowedMaxExposure));
+  }, [exposureMin, exposureMax, allowedMinExposure, allowedMaxExposure]);
 
   const [minInput, setMinInput] = useState(formatExposureValue(exposureMin));
   const [maxInput, setMaxInput] = useState(formatExposureValue(exposureMax));
@@ -95,60 +88,87 @@ export const ExposureSetting: React.FC<ExposureSettingProps> = ({
     return Number.isNaN(parsed) ? null : parsed;
   };
 
+  const validateExposureValue = (
+    value: number,
+    isMin: boolean,
+  ): { isValid: boolean; error: string | null; sanitizedValue: number } => {
+    // Check hardware bounds first
+    if (value < allowedMinExposure - EXPOSURE_TOLERANCE) {
+      return {
+        isValid: false,
+        error: `Must be ≥ EV ${formatExposureValue(allowedMinExposure)} (device min)`,
+        sanitizedValue: allowedMinExposure,
+      };
+    }
+
+    if (value > allowedMaxExposure + EXPOSURE_TOLERANCE) {
+      return {
+        isValid: false,
+        error: `Must be ≤ EV ${formatExposureValue(allowedMaxExposure)} (device max)`,
+        sanitizedValue: allowedMaxExposure,
+      };
+    }
+
+    // Check min/max relationship
+    if (isMin && value > exposureMax + EXPOSURE_TOLERANCE) {
+      return {
+        isValid: false,
+        error: `Min must be ≤ max (EV ${formatExposureValue(exposureMax)})`,
+        sanitizedValue: exposureMax,
+      };
+    }
+
+    if (!isMin && value < exposureMin - EXPOSURE_TOLERANCE) {
+      return {
+        isValid: false,
+        error: `Max must be ≥ min (EV ${formatExposureValue(exposureMin)})`,
+        sanitizedValue: exposureMin,
+      };
+    }
+
+    // Clamp to valid range
+    const sanitizedValue = Math.min(allowedMaxExposure, Math.max(allowedMinExposure, value));
+    return { isValid: true, error: null, sanitizedValue };
+  };
+
   const commitMinExposure = (override?: string) => {
     const value = typeof override === 'string' ? override : minInput;
     const parsed = parseInputValue(value);
+    
     if (parsed === null) {
       setMinError('Enter a numeric value.');
       return;
     }
 
-    if (parsed < finalMinExposure - EXPOSURE_TOLERANCE) {
-      setMinError(`Must be ≥ EV ${finalMinExposure.toFixed(2)} (camera min).`);
+    const validation = validateExposureValue(parsed, true);
+    
+    if (!validation.isValid) {
+      setMinError(validation.error);
       return;
     }
 
-    if (parsed > finalMaxExposure + EXPOSURE_TOLERANCE) {
-      setMinError(`Must be ≤ EV ${finalMaxExposure.toFixed(2)} (camera max).`);
-      return;
-    }
-
-    if (parsed > exposureMax) {
-      setMinError(`Must be ≤ current max (EV ${exposureMax.toFixed(2)}).`);
-      return;
-    }
-
-    const sanitizedValue = Math.min(finalMaxExposure, Math.max(finalMinExposure, parsed));
     setMinError(null);
-    onExposureMinChange(sanitizedValue);
+    onExposureMinChange(validation.sanitizedValue);
   };
 
   const commitMaxExposure = (override?: string) => {
     const value = typeof override === 'string' ? override : maxInput;
     const parsed = parseInputValue(value);
+    
     if (parsed === null) {
       setMaxError('Enter a numeric value.');
       return;
     }
 
-    if (parsed > finalMaxExposure + EXPOSURE_TOLERANCE) {
-      setMaxError(`Must be ≤ EV ${finalMaxExposure.toFixed(2)} (camera max).`);
+    const validation = validateExposureValue(parsed, false);
+    
+    if (!validation.isValid) {
+      setMaxError(validation.error);
       return;
     }
 
-    if (parsed < finalMinExposure - EXPOSURE_TOLERANCE) {
-      setMaxError(`Must be ≥ EV ${finalMinExposure.toFixed(2)} (camera min).`);
-      return;
-    }
-
-    if (parsed < exposureMin) {
-      setMaxError(`Must be ≥ current min (EV ${exposureMin.toFixed(2)}).`);
-      return;
-    }
-
-    const sanitizedValue = Math.min(finalMaxExposure, Math.max(finalMinExposure, parsed));
     setMaxError(null);
-    onExposureMaxChange(sanitizedValue);
+    onExposureMaxChange(validation.sanitizedValue);
   };
 
   const debounceMinValidation = (value: string) => {
@@ -177,9 +197,13 @@ export const ExposureSetting: React.FC<ExposureSettingProps> = ({
       {exposureMode === 'manual' && (
         <>
           <Text style={styles.sectionLabel}>Exposure Range</Text>
-          <Text style={styles.rangeInfo}>
-            Camera range: EV {finalMinExposure.toFixed(2)} to EV {finalMaxExposure.toFixed(2)}
-          </Text>
+          
+          {/* Device capability info */}
+          <View style={styles.deviceInfoContainer}>
+            <Text style={styles.deviceInfoText}>
+              Device range: EV {formatExposureValue(allowedMinExposure)} to EV {formatExposureValue(allowedMaxExposure)}
+            </Text>
+          </View>
 
           <View style={styles.inputGroup}>
             <View style={styles.inputCard}>
@@ -198,7 +222,7 @@ export const ExposureSetting: React.FC<ExposureSettingProps> = ({
                 onSubmitEditing={() => commitMinExposure()}
                 keyboardType="numbers-and-punctuation"
                 returnKeyType="done"
-                placeholder={`Enter minimum exposure`}
+                placeholder={`Enter Minimum Exposure`}
                 placeholderTextColor="#9CA3AF"
                 testID="exposure-min-input"
               />
@@ -222,18 +246,29 @@ export const ExposureSetting: React.FC<ExposureSettingProps> = ({
                 onSubmitEditing={() => commitMaxExposure()}
                 keyboardType="numbers-and-punctuation"
                 returnKeyType="done"
-                placeholder={`Enter maximum exposure`}
+                placeholder={`Enter Maximum Exposure`}
                 placeholderTextColor="#9CA3AF"
                 testID="exposure-max-input"
               />
-          
+         
               {maxError && <Text style={styles.errorText}>{maxError}</Text>}
             </View>
           </View>
+
+   
         </>
       )}
     </View>
   );
+};
+
+// Helper function to format exposure values for display
+const formatExposureValue = (value: number): string => {
+  if (!Number.isFinite(value)) {
+    return '0';
+  }
+  const fixed = value.toFixed(2);
+  return fixed.replace(/\.?0+$/, '') || '0';
 };
 
 const styles = StyleSheet.create({
@@ -252,14 +287,23 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontWeight: '600',
     marginTop: 8,
-    marginBottom: 12,
+    marginBottom: 8,
     paddingHorizontal: 16,
   },
-  rangeInfo: {
-    fontSize: 12,
-    color: '#9CA3AF',
+  deviceInfoContainer: {
+    backgroundColor: '#FEF3C7',
     paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginHorizontal: 16,
     marginBottom: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+  },
+  deviceInfoText: {
+    fontSize: 12,
+    color: '#92400E',
+    fontWeight: '500',
   },
   inputGroup: {
     paddingHorizontal: 16,
@@ -302,13 +346,34 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontWeight: '600',
   },
+  currentExposureContainer: {
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+    alignItems: 'center',
+  },
+  currentExposureLabel: {
+    fontSize: 11,
+    color: '#065F46',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  currentExposureValue: {
+    fontSize: 20,
+    color: '#047857',
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  currentExposureHint: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 2,
+  },
 });
-
-const formatExposureValue = (value: number): string => {
-  if (!Number.isFinite(value)) {
-    return '0';
-  }
-  const fixed = value.toFixed(2);
-  return fixed.replace(/\.?0+$/, '') || '0';
-};
 
