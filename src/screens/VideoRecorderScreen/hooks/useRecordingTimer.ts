@@ -4,7 +4,7 @@ import { Animated } from 'react-native';
 interface UseRecordingTimerReturn {
   recordingTime: number;
   pulseAnim: Animated.Value;
-  startTimer: () => void;
+  startTimer: (startTimestamp?: number) => void;
   stopTimer: () => void;
   resetTimer: () => void;
   formatTime: (seconds: number) => string;
@@ -13,6 +13,7 @@ interface UseRecordingTimerReturn {
 export const useRecordingTimer = (isRecording: boolean): UseRecordingTimerReturn => {
   const [recordingTime, setRecordingTime] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTimestampRef = useRef<number | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   const formatTime = useCallback((seconds: number) => {
@@ -21,11 +22,31 @@ export const useRecordingTimer = (isRecording: boolean): UseRecordingTimerReturn
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   }, []);
 
-  const startTimer = useCallback(() => {
+  const startTimer = useCallback((startTimestamp?: number) => {
+    const startTime = startTimestamp || Date.now();
+    startTimestampRef.current = startTime;
+    
+    // Clear any existing interval
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+    
+    // Update immediately to show correct time from start
+    const updateTime = () => {
+      if (startTimestampRef.current) {
+        const elapsed = Math.floor((Date.now() - startTimestampRef.current) / 1000);
+        setRecordingTime(elapsed);
+      }
+    };
+    
+    // Set initial time immediately
     setRecordingTime(0);
-    timerRef.current = setInterval(() => {
-      setRecordingTime(prev => prev + 1);
-    }, 1000);
+    
+    // Update every 100ms for smooth, accurate time display
+    timerRef.current = setInterval(updateTime, 100);
+    
+    // Force an immediate update after a tiny delay to ensure React state update
+    setTimeout(updateTime, 10);
   }, []);
 
   const stopTimer = useCallback(() => {
@@ -33,10 +54,12 @@ export const useRecordingTimer = (isRecording: boolean): UseRecordingTimerReturn
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
+    startTimestampRef.current = null;
   }, []);
 
   const resetTimer = useCallback(() => {
     setRecordingTime(0);
+    startTimestampRef.current = null;
   }, []);
 
   // Pulse animation for recording indicator

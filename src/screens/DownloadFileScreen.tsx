@@ -9,6 +9,7 @@ import {
   ScrollView,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import RNFS from 'react-native-fs';
 import Share from 'react-native-share';
 
@@ -194,7 +195,7 @@ const DownloadFileScreen: React.FC = () => {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
           <Text style={styles.title}>Download Files</Text>
@@ -261,7 +262,7 @@ const DownloadFileScreen: React.FC = () => {
           </Text>
         </View>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 };
 

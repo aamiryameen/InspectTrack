@@ -15,7 +15,7 @@ interface GyroDataPoint extends GyroData {
 interface UseGyroscopeReturn {
   gyroData: GyroData;
   gyroDataRef: React.MutableRefObject<GyroDataPoint[]>;
-  startGyroscopeDataCollection: () => void;
+  startGyroscopeDataCollection: (startTimestamp?: number) => void;
   stopGyroscopeDataCollection: () => void;
 }
 
@@ -25,6 +25,7 @@ export const useGyroscope = (settings: RecordingSettings): UseGyroscopeReturn =>
   const previousGyroData = useRef<GyroData>({ x: 0, y: 0, z: 0 });
   const gyroDataRef = useRef<GyroDataPoint[]>([]);
   const gyroCollectionInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordingStartTimeRef = useRef<number | null>(null);
 
   const getUTCTimestamp = (): number => {
     try {
@@ -59,10 +60,22 @@ export const useGyroscope = (settings: RecordingSettings): UseGyroscopeReturn =>
     });
   }, []);
 
-  const startGyroscopeDataCollection = useCallback(() => {
+  const startGyroscopeDataCollection = useCallback((startTimestamp?: number) => {
     gyroDataRef.current = [];
+    const recordingStartTime = startTimestamp || Date.now();
+    recordingStartTimeRef.current = recordingStartTime;
     const samplingInterval = settings.gps.updateInterval * 1000;
 
+    // Capture first data point immediately at start time
+    const initialTimestamp = recordingStartTime;
+    gyroDataRef.current.push({
+      timestamp: initialTimestamp,
+      x: previousGyroData.current.x,
+      y: previousGyroData.current.y,
+      z: previousGyroData.current.z,
+    });
+
+    // Then continue collecting at intervals
     gyroCollectionInterval.current = setInterval(() => {
       const utcTimestamp = getUTCTimestamp();
 

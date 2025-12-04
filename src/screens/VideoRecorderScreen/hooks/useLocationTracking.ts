@@ -20,7 +20,7 @@ interface UseLocationTrackingReturn {
   location: Location | null;
   gpsDataRef: React.MutableRefObject<GPSDataPoint[]>;
   totalDistanceRef: React.MutableRefObject<number>;
-  startGPSDataCollection: () => void;
+  startGPSDataCollection: (startTimestamp?: number) => void;
   stopGPSDataCollection: () => void;
 }
 
@@ -60,6 +60,8 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
   const gpsDataRef = useRef<GPSDataPoint[]>([]);
   const gpsCollectionInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const totalDistanceRef = useRef<number>(0);
+  const permissionDeniedRef = useRef<boolean>(false);
+  const recordingStartTimeRef = useRef<number | null>(null);
 
   const getUTCTimestamp = (): number => {
     try {
@@ -76,6 +78,7 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
       );
       if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+        permissionDeniedRef.current = true;
         return;
       }
     }
@@ -90,48 +93,155 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
         const address = await reverseGeocode(latitude, longitude);
         setLocation({ latitude, longitude, address });
       },
-      (error) => console.error('Location error:', error),
+      (error) => {
+        // Check for permission denied (code 1 or PERMISSION_DENIED constant)
+        if (error.code === 1 || error.code === error.PERMISSION_DENIED) {
+          permissionDeniedRef.current = true;
+          if (locationWatchId.current !== null) {
+            Geolocation.clearWatch(locationWatchId.current);
+            locationWatchId.current = null;
+          }
+          console.warn('Location permission denied. Location tracking disabled.');
+        } else {
+          console.error('Location error:', error);
+        }
+      },
       { enableHighAccuracy, distanceFilter, interval }
     );
   }, [settings.gps.accuracy, settings.gps.distanceFilter, settings.gps.updateInterval]);
 
-  const startGPSDataCollection = useCallback(() => {
+  const startGPSDataCollection = useCallback((startTimestamp?: number) => {
     gpsDataRef.current = [];
     totalDistanceRef.current = 0;
+    const recordingStartTime = startTimestamp || Date.now();
+    recordingStartTimeRef.current = recordingStartTime;
     
     if (!settings.metadata.gpsSync) return;
+    
+    if (permissionDeniedRef.current) {
+      console.warn('GPS collection skipped: Location permission denied');
+      return;
+    }
 
     const samplingInterval = settings.gps.updateInterval * 1000;
     const enableHighAccuracy = settings.gps.accuracy === 'high';
 
-    gpsCollectionInterval.current = setInterval(() => {
-      Geolocation.getCurrentPosition(
-        (position) => {
-          const utcTimestamp = getUTCTimestamp();
-          const { latitude, longitude, accuracy } = position.coords;
+    // Capture first GPS point immediately at start time
+    Geolocation.getCurrentPosition(
+      (position) => {
+        const initialTimestamp = recordingStartTime;
+        const { latitude, longitude, accuracy } = position.coords;
 
-          if (gpsDataRef.current.length > 0) {
-            const prevPoint = gpsDataRef.current[gpsDataRef.current.length - 1];
-            const distance = calculateDistance(
-              prevPoint.latitude,
-              prevPoint.longitude,
-              latitude,
-              longitude
-            );
-            totalDistanceRef.current += distance;
+        gpsDataRef.current.push({
+          timestamp: initialTimestamp,
+          latitude,
+          longitude,
+          accuracy,
+        });
+
+        // Then continue collecting at intervals
+        gpsCollectionInterval.current = setInterval(() => {
+          if (permissionDeniedRef.current) {
+            if (gpsCollectionInterval.current) {
+              clearInterval(gpsCollectionInterval.current);
+              gpsCollectionInterval.current = null;
+            }
+            return;
           }
 
-          gpsDataRef.current.push({
-            timestamp: utcTimestamp,
-            latitude,
-            longitude,
-            accuracy,
-          });
-        },
-        (error) => console.error('GPS collection error:', error),
-        { enableHighAccuracy, timeout: 20000, maximumAge: 0 }
-      );
-    }, samplingInterval);
+          Geolocation.getCurrentPosition(
+            (position) => {
+              const utcTimestamp = getUTCTimestamp();
+              const { latitude, longitude, accuracy } = position.coords;
+
+              if (gpsDataRef.current.length > 0) {
+                const prevPoint = gpsDataRef.current[gpsDataRef.current.length - 1];
+                const distance = calculateDistance(
+                  prevPoint.latitude,
+                  prevPoint.longitude,
+                  latitude,
+                  longitude
+                );
+                totalDistanceRef.current += distance;
+              }
+
+              gpsDataRef.current.push({
+                timestamp: utcTimestamp,
+                latitude,
+                longitude,
+                accuracy,
+              });
+            },
+            (error) => {
+              // Check for permission denied (code 1 or PERMISSION_DENIED constant)
+              if (error.code === 1 || error.code === error.PERMISSION_DENIED) {
+                permissionDeniedRef.current = true;
+                if (gpsCollectionInterval.current) {
+                  clearInterval(gpsCollectionInterval.current);
+                  gpsCollectionInterval.current = null;
+                }
+                console.warn('GPS collection stopped: Location permission denied');
+              } else {
+                console.error('GPS collection error:', error);
+              }
+            },
+            { enableHighAccuracy, timeout: 20000, maximumAge: 0 }
+          );
+        }, samplingInterval);
+      },
+      (error) => {
+        console.error('Initial GPS collection error:', error);
+        // Still start the interval even if initial capture fails
+        gpsCollectionInterval.current = setInterval(() => {
+          if (permissionDeniedRef.current) {
+            if (gpsCollectionInterval.current) {
+              clearInterval(gpsCollectionInterval.current);
+              gpsCollectionInterval.current = null;
+            }
+            return;
+          }
+
+          Geolocation.getCurrentPosition(
+            (position) => {
+              const utcTimestamp = getUTCTimestamp();
+              const { latitude, longitude, accuracy } = position.coords;
+
+              if (gpsDataRef.current.length > 0) {
+                const prevPoint = gpsDataRef.current[gpsDataRef.current.length - 1];
+                const distance = calculateDistance(
+                  prevPoint.latitude,
+                  prevPoint.longitude,
+                  latitude,
+                  longitude
+                );
+                totalDistanceRef.current += distance;
+              }
+
+              gpsDataRef.current.push({
+                timestamp: utcTimestamp,
+                latitude,
+                longitude,
+                accuracy,
+              });
+            },
+            (error) => {
+              if (error.code === 1 || error.code === error.PERMISSION_DENIED) {
+                permissionDeniedRef.current = true;
+                if (gpsCollectionInterval.current) {
+                  clearInterval(gpsCollectionInterval.current);
+                  gpsCollectionInterval.current = null;
+                }
+                console.warn('GPS collection stopped: Location permission denied');
+              } else {
+                console.error('GPS collection error:', error);
+              }
+            },
+            { enableHighAccuracy, timeout: 20000, maximumAge: 0 }
+          );
+        }, samplingInterval);
+      },
+      { enableHighAccuracy, timeout: 20000, maximumAge: 0 }
+    );
   }, [settings.gps.updateInterval, settings.gps.accuracy, settings.metadata.gpsSync]);
 
   const stopGPSDataCollection = useCallback(() => {

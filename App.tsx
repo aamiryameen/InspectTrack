@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, ErrorInfo, ReactNode, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Provider } from 'react-redux';
@@ -8,6 +8,11 @@ import SummaryScreen from './src/screens/SummaryScreen';
 import DownloadFileScreen from './src/screens/DownloadFileScreen';
 import { store } from './src/store/store';
 import { RecordingSettings } from './src/utils/settingsUtils';
+import { LogBox, Button, View } from 'react-native';
+import { initFirebase } from '../InspectTrack/src/utils/firebaseInit';
+import { initCrashlytics } from '../InspectTrack/src/utils/crashlyticsSetup';
+
+import crashlytics from '@react-native-firebase/crashlytics';
 
 export type RootStackParamList = {
   Home: undefined;
@@ -31,13 +36,27 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+const handleCrashTest = () => {
+  crashlytics().log("Testing Crash");
+  crashlytics().crash(); // 💥 Force crash
+};
+
 const App = () => {
+
+  LogBox.ignoreAllLogs()
+
+  useEffect(() => {
+    initFirebase();      // Initialize Firebase in React Native
+    initCrashlytics();  
+  }, []);
+  
   return (
     <Provider store={store}>
       <NavigationContainer>
         <Stack.Navigator
           initialRouteName="Home"
           screenOptions={{
+            headerShown: false,
             headerStyle: {
               backgroundColor: '#000',
             },
@@ -50,32 +69,21 @@ const App = () => {
           <Stack.Screen
             name="Home"
             component={HomeScreen}
-            options={{ headerShown: false }}
           />
           <Stack.Screen
             name="Recording"
             component={RecordingScreen}
-            options={{
-              headerShown: false,
-            }}
           />
           <Stack.Screen
             name="Summary"
             component={SummaryScreen}
-            options={{
-              title: 'Summary',
-              headerShown: true,
-            }}
           />
           <Stack.Screen
             name="DownloadFile"
             component={DownloadFileScreen}
-            options={{
-              title: 'Download Files',
-              headerShown: true,
-            }}
           />
         </Stack.Navigator>
+   
       </NavigationContainer>
     </Provider>
   );

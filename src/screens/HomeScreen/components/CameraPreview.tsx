@@ -32,6 +32,16 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
 
   const fps = format ? Math.min(format.maxFps, settings.frameRate.fps) : settings.frameRate.fps;
   
+  // Get exposure value constrained to min/max range when in manual mode
+  const manualExposureValue = (() => {
+    if (settings.camera.exposureMode !== 'manual') return undefined;
+    if (typeof settings.camera.exposure !== 'number') return undefined;
+    
+    const { exposure, exposureMin, exposureMax } = settings.camera;
+    // Clamp exposure to the configured min/max range
+    return Math.max(exposureMin, Math.min(exposure, exposureMax));
+  })();
+  
   const videoHdrEnabled = hdr && format?.supportsVideoHdr;
   const photoHdrEnabled = hdr && format?.supportsPhotoHdr;
 
@@ -122,7 +132,7 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
                 fps={fps}
                 videoHdr={videoHdrEnabled}
                 photoHdr={photoHdrEnabled}
-                exposure={settings.camera.exposureMode === 'manual' ? settings.camera.exposure : undefined}
+                exposure={manualExposureValue}
               />
             </Pressable>
         

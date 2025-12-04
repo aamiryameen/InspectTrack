@@ -106,7 +106,7 @@ export const useSystemMonitoring = (isRecording: boolean): UseSystemMonitoringRe
     };
 
     updateSystemStats();
-    const intervalId = setInterval(updateSystemStats, 1000);
+    const intervalId = setInterval(updateSystemStats, 5000);
 
     return () => clearInterval(intervalId);
   }, [isRecording]);

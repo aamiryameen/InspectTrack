@@ -54,6 +54,7 @@ const styles = StyleSheet.create({
     padding: responsiveSpacing(10),
     minWidth: 85,
     alignItems: 'center',
+    marginVertical: 5
   },
   infoLabel: {
     color: '#94A3B8',
@@ -61,6 +62,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: responsiveSpacing(3),
     letterSpacing: 0.6,
+    gap: 10
   },
   infoValue: {
     color: '#FFF',

@@ -1,3 +1,4 @@
+import Firebase
 import UIKit
 import React
 import React_RCTAppDelegate
@@ -14,10 +15,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
+    // Firebase is configured automatically by React Native Firebase via GoogleService-Info.plist
+ FirebaseApp.configure()
     let delegate = ReactNativeDelegate()
     let factory = RCTReactNativeFactory(delegate: delegate)
     delegate.dependencyProvider = RCTAppDependencyProvider()
-
+   
     reactNativeDelegate = delegate
     reactNativeFactory = factory
 
@@ -33,8 +36,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
   }
 
   func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
-    return .all
+   
+    return Orientation.getOrientation()
   }
+  
 }
 
 class ReactNativeDelegate: RCTDefaultReactNativeFactoryDelegate {

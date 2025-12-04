@@ -17,6 +17,15 @@ end
 target 'InspectTrack' do
   config = use_native_modules!
 
+  # React Native Firebase will automatically link Firebase pods via use_native_modules!
+  # Enable modular headers for Firebase dependencies (required for Swift pods)
+  pod 'GoogleUtilities', :modular_headers => true
+  pod 'GoogleDataTransport', :modular_headers => true
+  pod 'nanopb', :modular_headers => true
+  pod 'FirebaseCore', :modular_headers => true
+  pod 'FirebaseInstallations', :modular_headers => true
+  pod 'FirebaseCoreExtension', :modular_headers => true
+
   use_react_native!(
     :path => config[:reactNativePath],
     # An absolute path to your application root.

@@ -14,6 +14,8 @@ export interface RecordingSettings {
   camera: {
     exposureMode: 'auto' | 'manual';
     exposure: number;
+    exposureMin: number;
+    exposureMax: number;
     isoMode: 'auto' | 'manual';
     iso: number;
     hdr: boolean;
@@ -50,6 +52,8 @@ export const defaultSettings: RecordingSettings = {
   camera: {
     exposureMode: 'manual',
     exposure: 0,
+    exposureMin: 0,
+    exposureMax: 0,
     isoMode: 'manual',
     iso: 100,
     hdr: false,
@@ -76,7 +80,15 @@ export const loadSettings = async (): Promise<RecordingSettings> => {
   try {
     const settingsJson = await AsyncStorage.getItem('recordingSettings');
     if (settingsJson) {
-      return JSON.parse(settingsJson);
+      const loadedSettings = JSON.parse(settingsJson);
+      // Backward compatibility: add exposureMin and exposureMax if they don't exist
+      if (loadedSettings.camera && typeof loadedSettings.camera.exposureMin === 'undefined') {
+        loadedSettings.camera.exposureMin = defaultSettings.camera.exposureMin;
+      }
+      if (loadedSettings.camera && typeof loadedSettings.camera.exposureMax === 'undefined') {
+        loadedSettings.camera.exposureMax = defaultSettings.camera.exposureMax;
+      }
+      return loadedSettings;
     }
     return defaultSettings;
   } catch (error) {
