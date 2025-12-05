@@ -69,6 +69,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const [exposureMax, setExposureMax] = useState(defaultSettings.camera.exposureMax);
   const [isoMode, setIsoMode] = useState<'auto' | 'manual'>('manual');
   const [iso, setIso] = useState(100);
+  const [isoMin, setIsoMin] = useState(100);
+  const [isoMax, setIsoMax] = useState(3200);
   const [hdr, setHdr] = useState(false);
   const [tapToFocusEnabled, setTapToFocusEnabled] = useState(true);
   const [zoom, setZoom] = useState(1);
@@ -277,6 +279,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         setExposureMode(updatedSettings.camera.exposureMode);
         setIsoMode(updatedSettings.camera.isoMode);
         setIso(updatedSettings.camera.iso);
+        setIsoMin(updatedSettings.camera.isoMin ?? updatedSettings.camera.iso ?? 100);
+        setIsoMax(updatedSettings.camera.isoMax ?? 3200);
         setHdr(updatedSettings.camera.hdr || false);
         setTapToFocusEnabled(updatedSettings.camera.tapToFocusEnabled ?? true);
         setExposureMin(boundedMin);
@@ -326,6 +330,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
         exposureMax,
         isoMode,
         iso,
+        isoMin,
+        isoMax,
         hdr,
         tapToFocusEnabled,
       },
@@ -478,13 +484,26 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
     await saveSettings(newSettings);
   };
 
-  const handleIsoChange = async (value: number) => {
-    setIso(value);
+  const handleIsoMinChange = async (value: number) => {
+    setIsoMin(value);
     const newSettings = {
       ...settings,
       camera: {
         ...settings.camera,
-        iso: value,
+        isoMin: value,
+      },
+    };
+    setSettings(newSettings);
+    await saveSettings(newSettings);
+  };
+
+  const handleIsoMaxChange = async (value: number) => {
+    setIsoMax(value);
+    const newSettings = {
+      ...settings,
+      camera: {
+        ...settings.camera,
+        isoMax: value,
       },
     };
     setSettings(newSettings);
@@ -584,10 +603,12 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
             <ISOSetting
               isoMode={isoMode}
-              iso={iso}
+              isoMin={isoMin}
+              isoMax={isoMax}
               format={format}
               onModeChange={handleIsoModeChange}
-              onIsoChange={handleIsoChange}
+              onIsoMinChange={handleIsoMinChange}
+              onIsoMaxChange={handleIsoMaxChange}
             />
 
             <HDRSetting hdr={hdr} format={format} onToggle={handleHdrToggle} />

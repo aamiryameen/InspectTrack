@@ -15,7 +15,6 @@ import { getResolutionDimensions, RecordingSettings } from '../../../utils/setti
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-// Custom hooks
 import { useSystemMonitoring, useGyroscope, useLocationTracking, useRecordingTimer } from '../hooks';
 
 import {
@@ -57,14 +56,13 @@ interface VideoRecorderProps {
 
 const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings, zoom: initialZoom }) => {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  
   const [settings, setSettings] = useState<RecordingSettings>(initialSettings);
   const [zoom, setZoom] = useState<number>(initialZoom);
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
   const [cameraLayout, setCameraLayout] = useState({ width: 0, height: 0 });
-  
+
   const camera = useRef<Camera>(null);
   const focusFadeAnim = useRef(new Animated.Value(0)).current;
   const recordingStartTime = useRef<number>(0);
@@ -88,14 +86,10 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const fps = format ? Math.min(format.maxFps, settings.frameRate.fps) : settings.frameRate.fps;
   const hdrEnabled = settings.camera.hdr && format?.supportsVideoHdr;
   const photoHdrEnabled = settings.camera.hdr && format?.supportsPhotoHdr;
-  
-  // Get exposure value constrained to min/max range when in manual mode
   const manualExposureValue = (() => {
     if (settings.camera.exposureMode !== 'manual') return undefined;
     if (typeof settings.camera.exposure !== 'number') return undefined;
-    
     const { exposure, exposureMin, exposureMax } = settings.camera;
-    // Clamp exposure to the configured min/max range
     return Math.max(exposureMin, Math.min(exposure, exposureMax));
   })();
 
@@ -112,7 +106,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
 
   useEffect(() => {
     isMountedRef.current = true;
-    
+
     if (Platform.OS === 'ios') {
       requestAnimationFrame(() => {
         Orientation.lockToLandscape();
@@ -120,7 +114,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     } else {
       Orientation.lockToLandscape();
     }
-    
+
     checkPermissions();
 
     return () => {
@@ -164,59 +158,46 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   };
 
   const handleCameraLayout = useCallback((event: any) => {
-    
     if (!event || !event.nativeEvent || !event.nativeEvent.layout) {
       return;
     }
-
     const { width, height } = event.nativeEvent.layout;
-    
     if (width <= 0 || height <= 0) {
       return;
     }
-
     if (layoutTimeoutRef.current) {
       clearTimeout(layoutTimeoutRef.current);
       layoutTimeoutRef.current = null;
     }
-
     layoutTimeoutRef.current = setTimeout(() => {
       if (!isMountedRef.current) {
         return;
       }
-
       try {
-     
         if (width > 0 && height > 0 && isMountedRef.current) {
           setCameraLayout({ width, height });
         }
       } catch (error) {
         console.error('Error handling camera layout:', error);
       }
-    }, 100); 
+    }, 100);
   }, []);
 
   const handleTapToFocus = useCallback(async (event: any) => {
     if (!isMountedRef.current || !settings.camera.tapToFocusEnabled || !device?.supportsFocus) {
       return;
     }
-    
     const { locationX, locationY } = event.nativeEvent;
-    
     if (locationX === undefined || locationY === undefined) {
       return;
     }
-
     if (!cameraLayout.width || !cameraLayout.height) {
-        return;
+      return;
     }
-
     if (!isMountedRef.current) {
       return;
     }
-
     setFocusPoint({ x: locationX, y: locationY });
-    
     focusFadeAnim.setValue(1);
     Animated.timing(focusFadeAnim, {
       toValue: 0,
@@ -227,12 +208,10 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         setFocusPoint(null);
       }
     });
-
     if (camera.current && isMountedRef.current) {
       try {
         const normalizedX = locationX / cameraLayout.width;
         const normalizedY = locationY / cameraLayout.height;
-        
         await camera.current.focus({
           x: normalizedX,
           y: normalizedY,
@@ -246,7 +225,6 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const saveGyroscopeData = async (videoFileName: string) => {
     try {
       const gyroFileName = videoFileName.replace('.mp4', '_gyroscope.json');
-
       const gyroscopeData = {
         recordingStartTime: recordingStartTime.current,
         recordingEndTime: recordingEndTime.current,
@@ -256,11 +234,9 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         timestampFormat: settings.metadata.timestampFormat,
         gyroscopePoints: gyroDataRef.current,
       };
-
       const gyroFilePath = Platform.OS === 'ios'
         ? `${RNFS.DocumentDirectoryPath}/${gyroFileName}`
         : `${RNFS.DownloadDirectoryPath}/${gyroFileName}`;
-
       await RNFS.writeFile(gyroFilePath, JSON.stringify(gyroscopeData, null, 2), 'utf8');
       return gyroFileName;
     } catch (error) {
@@ -272,7 +248,6 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const saveGPSData = async (videoFileName: string) => {
     try {
       const gpsFileName = videoFileName.replace('.mp4', '_gps.json');
-
       const gpsData = {
         recordingStartTime: recordingStartTime.current,
         recordingEndTime: recordingEndTime.current,
@@ -282,11 +257,9 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         timestampFormat: settings.metadata.timestampFormat,
         gpsPoints: gpsDataRef.current,
       };
-
       const gpsFilePath = Platform.OS === 'ios'
         ? `${RNFS.DocumentDirectoryPath}/${gpsFileName}`
         : `${RNFS.DownloadDirectoryPath}/${gpsFileName}`;
-
       await RNFS.writeFile(gpsFilePath, JSON.stringify(gpsData, null, 2), 'utf8');
       return gpsFileName;
     } catch (error) {
@@ -298,7 +271,6 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const saveCameraSettings = async (videoFileName: string) => {
     try {
       const settingsFileName = videoFileName.replace('.mp4', '_camera_settings.json');
-
       const cameraSettingsData = {
         recordingStartTime: recordingStartTime.current,
         recordingEndTime: recordingEndTime.current,
@@ -313,11 +285,9 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         zoom: zoom,
         lens: `${zoom}x`,
       };
-
       const settingsFilePath = Platform.OS === 'ios'
         ? `${RNFS.DocumentDirectoryPath}/${settingsFileName}`
         : `${RNFS.DownloadDirectoryPath}/${settingsFileName}`;
-
       await RNFS.writeFile(settingsFilePath, JSON.stringify(cameraSettingsData, null, 2), 'utf8');
       return settingsFileName;
     } catch (error) {
@@ -344,13 +314,10 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     try {
       const timestamp = new Date().getTime();
       const fileName = `video_${timestamp}.mp4`;
-
       const destPath = Platform.OS === 'ios'
         ? `${RNFS.DocumentDirectoryPath}/${fileName}`
         : `${RNFS.DownloadDirectoryPath}/${fileName}`;
-
       await RNFS.moveFile(videoPath, destPath);
-
       const gpsFileName = await saveGPSData(fileName);
       const gyroscopeFileName = await saveGyroscopeData(fileName);
       const cameraSettingsFileName = await saveCameraSettings(fileName);
@@ -358,15 +325,15 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       const avgCPU = cpuStatsRef.current.length > 0
         ? Math.round(cpuStatsRef.current.reduce((a, b) => a + b, 0) / cpuStatsRef.current.length)
         : 0;
-      
+
       const highestCPU = cpuStatsRef.current.length > 0
         ? Math.round(Math.max(...cpuStatsRef.current))
         : 0;
-      
+
       const avgMemory = memoryStatsRef.current.length > 0
         ? memoryStatsRef.current.reduce((a, b) => a + b, 0) / memoryStatsRef.current.length
         : 0;
-      
+
       const highestMemory = memoryStatsRef.current.length > 0
         ? Math.max(...memoryStatsRef.current)
         : 0;
@@ -374,7 +341,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       const actualDuration = recordingEndTime.current > 0 && recordingStartTime.current > 0
         ? Math.round((recordingEndTime.current - recordingStartTime.current) / 1000)
         : recordingTime;
-      
+
       const savedDuration = actualDuration;
       const savedDistance = totalDistanceRef.current;
 
@@ -389,7 +356,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       const cameraSettingsFilePath = Platform.OS === 'ios'
         ? `${RNFS.DocumentDirectoryPath}/${cameraSettingsFileName}`
         : `${RNFS.DownloadDirectoryPath}/${cameraSettingsFileName}`;
-      
+
       const videoSaved = await verifyFileSaved(destPath, 'Video');
       const gpsSaved = await verifyFileSaved(gpsFilePath, 'GPS');
       const gyroSaved = await verifyFileSaved(gyroscopeFilePath, 'Gyroscope');
@@ -401,7 +368,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
 
         const saveLocation = Platform.OS === 'ios' ? 'Files app' : 'Downloads folder';
         const allSaved = videoSaved && gpsSaved && gyroSaved && cameraSettingsSaved;
-        
+
         if (allSaved) {
           Alert.alert(
             'Recording Saved',
@@ -454,32 +421,24 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       Alert.alert('Error', 'Camera not ready');
       return;
     }
-
     try {
       if (!isMountedRef.current) return;
-      
-      // Capture a single start timestamp that all systems will use for perfect synchronization
       const synchronizedStartTime = Date.now();
       recordingStartTime.current = synchronizedStartTime;
       recordingEndTime.current = 0;
-
-      // Start all systems simultaneously with the same timestamp
       setIsRecording(true);
       resetStats();
-      
-      // Start timer, GPS, and gyroscope with the same start timestamp
       startTimer(synchronizedStartTime);
       startGPSDataCollection(synchronizedStartTime);
       startGyroscopeDataCollection(synchronizedStartTime);
-      
+
       const now = new Date();
-      startTimeRef.current = now.toLocaleTimeString('en-US', { 
-        hour: '2-digit', 
+      startTimeRef.current = now.toLocaleTimeString('en-US', {
+        hour: '2-digit',
         minute: '2-digit',
-        hour12: true 
+        hour12: true
       });
 
-      // Start camera recording immediately after
       camera.current.startRecording({
         onRecordingFinished: async (video) => {
           if (isMountedRef.current) {
@@ -515,23 +474,18 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
 
   const pauseRecording = useCallback(async () => {
     if (!isMountedRef.current || !camera.current) return;
-
     try {
       if (!isMountedRef.current) return;
       setIsProcessing(true);
-      
       stopGPSDataCollection();
       stopGyroscopeDataCollection();
-      
       recordingEndTime.current = Date.now();
-      
       const now = new Date();
-      endTimeRef.current = now.toLocaleTimeString('en-US', { 
-        hour: '2-digit', 
+      endTimeRef.current = now.toLocaleTimeString('en-US', {
+        hour: '2-digit',
         minute: '2-digit',
-        hour12: true 
+        hour12: true
       });
-      
       await camera.current.stopRecording();
       if (isMountedRef.current) {
         setIsRecording(false);
@@ -557,35 +511,34 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   }, [isRecording, pauseRecording, startRecording]);
 
   const handleClosePress = useCallback(() => {
-                  if (isRecording) {
-                    Alert.alert('Cancel Recording', 'Do you want to stop and discard the current recording?', [
-                      { text: 'No', style: 'cancel' },
-                      { 
-                        text: 'Yes', 
-                        onPress: async () => {
-                          try {
-                            if (camera.current) {
-                              await camera.current.stopRecording();
-                            }
-                            stopTimer();
-                            stopGPSDataCollection();
-                            stopGyroscopeDataCollection();
-                            setIsRecording(false);
+    if (isRecording) {
+      Alert.alert('Cancel Recording', 'Do you want to stop and discard the current recording?', [
+        { text: 'No', style: 'cancel' },
+        {
+          text: 'Yes',
+          onPress: async () => {
+            try {
+              if (camera.current) {
+                await camera.current.stopRecording();
+              }
+              stopTimer();
+              stopGPSDataCollection();
+              stopGyroscopeDataCollection();
+              setIsRecording(false);
               resetTimer();
-                            navigation.goBack();
-                          } catch (error) {
-                            console.error('Error stopping recording:', error);
-                            navigation.goBack();
-                          }
-                        }
-                      }
-                    ]);
-                  } else {
-                    navigation.goBack();
-                  }
+              navigation.goBack();
+            } catch (error) {
+              console.error('Error stopping recording:', error);
+              navigation.goBack();
+            }
+          }
+        }
+      ]);
+    } else {
+      navigation.goBack();
+    }
   }, [isRecording, navigation, stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, resetTimer]);
 
-  // Permission screen
   if (!device || !hasCameraPermission || !hasMicrophonePermission) {
     return (
       <PermissionPrompt
@@ -599,8 +552,8 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
 
   return (
     <View style={styles.container}>
-      <Pressable 
-        style={StyleSheet.absoluteFill} 
+      <Pressable
+        style={StyleSheet.absoluteFill}
         onPress={handleTapToFocus}
         onLayout={handleCameraLayout}
       >
@@ -620,7 +573,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
           photoHdr={photoHdrEnabled}
           exposure={manualExposureValue}
         />
-        
+
         <FocusIndicator
           focusPoint={focusPoint}
           opacity={focusFadeAnim}
@@ -639,7 +592,6 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
           cpuUsage={cpuUsage}
           memoryUsage={memoryUsage}
           storageUsage={storageUsage}
-          
         />
 
         <InfoOverlay
