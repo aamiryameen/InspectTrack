@@ -9,13 +9,15 @@ import {
 interface StatsOverlayProps {
   cpuUsage: number;
   memoryUsage: number;
-  storageUsage: number;  
+  storageUsage: number;
+  totalStorageGB: number;
 }
 
 const StatsOverlay: React.FC<StatsOverlayProps> = memo(({ 
   cpuUsage, 
   memoryUsage, 
-  storageUsage 
+  storageUsage,
+  totalStorageGB
 }) => {
   return (
     <View style={styles.leftSidebar}>
@@ -29,8 +31,7 @@ const StatsOverlay: React.FC<StatsOverlayProps> = memo(({
 
       <View style={styles.statCard}>
         <Text style={styles.statLabel}>MEMORY</Text>  
-        {/* <Text style={styles.statValue}>{Math.round(memoryUsage)} Mb</Text> */}
-        <Text style={styles.statValue}>{Math.round(200)} Mb</Text>
+        <Text style={styles.statValue}>{Math.round(memoryUsage)} Mb</Text>
         <View style={styles.progressBar}>
           <View style={[styles.progressFill, { width: `${(memoryUsage / 50) * 100}%`, backgroundColor: '#10B981' }]} />
         </View>
@@ -38,8 +39,7 @@ const StatsOverlay: React.FC<StatsOverlayProps> = memo(({
 
       <View style={styles.statCard}>
         <Text style={styles.statLabel}>STORAGE</Text>
-        <Text style={styles.statValue}>{storageUsage.toFixed(2)}</Text>
-        {/* <Text style={styles.statValue}>{storageUsage.toFixed(2)}</Text> */}
+        <Text style={styles.statValue}>{storageUsage.toFixed(2)} / {totalStorageGB.toFixed(2)}</Text>
         <Text style={styles.statUnit}>GB</Text>
       </View>
     </View>
@@ -93,4 +93,3 @@ const styles = StyleSheet.create({
 });
 
 export default StatsOverlay;
-
