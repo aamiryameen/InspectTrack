@@ -1,10 +1,10 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, TextInput, Keyboard } from 'react-native';
+import React, { useMemo } from 'react';
+import { View, Text, StyleSheet } from 'react-native';
 import { CameraDevice } from 'react-native-vision-camera';
-import { useFocusEffect } from '@react-navigation/native';
 import { defaultSettings } from '../../../utils/settingsUtils';
 import { SettingRow } from './SettingRow';
 import { AutoManualToggle } from './AutoManualToggle';
+import MultiSlider from '@ptomasroos/react-native-multi-slider';
 
 interface ExposureSettingProps {
   exposureMode: 'auto' | 'manual';
@@ -18,9 +18,6 @@ interface ExposureSettingProps {
   onExposureMaxChange: (value: number) => void;
 }
 
-const EXPOSURE_TOLERANCE = 0.01; // allow slight rounding differences
-const VALIDATION_DELAY_MS = 400;
-
 export const ExposureSetting: React.FC<ExposureSettingProps> = ({
   exposureMode,
   exposureMin,
@@ -32,7 +29,6 @@ export const ExposureSetting: React.FC<ExposureSettingProps> = ({
   onExposureMinChange,
   onExposureMaxChange,
 }) => {
-  // Resolve hardware limits from device or props
   const resolvedMinLimit = useMemo(() => {
     if (Number.isFinite(minLimit)) return minLimit;
     if (typeof device?.minExposure === 'number') return device.minExposure;
@@ -45,175 +41,45 @@ export const ExposureSetting: React.FC<ExposureSettingProps> = ({
     return defaultSettings.camera.exposureMax;
   }, [maxLimit, device?.maxExposure]);
 
-  // Ensure min is always <= max for hardware limits
   const allowedMinExposure = Math.min(resolvedMinLimit, resolvedMaxLimit);
   const allowedMaxExposure = Math.max(resolvedMinLimit, resolvedMaxLimit);
 
-  // Calculate current exposure midpoint (what gets applied to camera)
-  const currentExposureValue = useMemo(() => {
-    const midpoint = (exposureMin + exposureMax) / 2;
-    return Math.max(allowedMinExposure, Math.min(midpoint, allowedMaxExposure));
-  }, [exposureMin, exposureMax, allowedMinExposure, allowedMaxExposure]);
+  const sliderLength = 280;
 
-  const [minInput, setMinInput] = useState(formatExposureValue(exposureMin));
-  const [maxInput, setMaxInput] = useState(formatExposureValue(exposureMax));
-  const [minError, setMinError] = useState<string | null>(null);
-  const [maxError, setMaxError] = useState<string | null>(null);
-  const minValidationTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const maxValidationTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const minInputRef = useRef<TextInput>(null);
-  const maxInputRef = useRef<TextInput>(null);
-
-  useEffect(() => {
-    setMinInput(formatExposureValue(exposureMin));
-  }, [exposureMin]);
-
-  useEffect(() => {
-    setMaxInput(formatExposureValue(exposureMax));
-  }, [exposureMax]);
-
-  useEffect(() => {
-    return () => {
-      if (minValidationTimeout.current) {
-        clearTimeout(minValidationTimeout.current);
-      }
-      if (maxValidationTimeout.current) {
-        clearTimeout(maxValidationTimeout.current);
-      }
-    };
-  }, []);
-
-  // Blur inputs when component mounts or when screen comes into focus
-  useEffect(() => {
-    // Blur inputs on mount to prevent auto-focus
-    const timer = setTimeout(() => {
-      minInputRef.current?.blur();
-      maxInputRef.current?.blur();
-      Keyboard.dismiss();
-    }, 100);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Blur inputs when screen comes into focus (navigate back)
-  useFocusEffect(
-    React.useCallback(() => {
-      // Blur inputs when navigating back to the screen
-      const timer = setTimeout(() => {
-        minInputRef.current?.blur();
-        maxInputRef.current?.blur();
-        Keyboard.dismiss();
-      }, 100);
-      return () => clearTimeout(timer);
-    }, [])
-  );
-
-  const parseInputValue = (value: string): number | null => {
-    if (value.trim() === '') {
-      return null;
-    }
-    const parsed = Number(value);
-    return Number.isNaN(parsed) ? null : parsed;
+  const calculatePosition = (value: number) => {
+    const range = allowedMaxExposure - allowedMinExposure;
+    if (range === 0) return 0;
+    const percentage = (value - allowedMinExposure) / range;
+    return percentage * sliderLength;
   };
 
-  const validateExposureValue = (
-    value: number,
-    isMin: boolean,
-  ): { isValid: boolean; error: string | null; sanitizedValue: number } => {
-    // Check hardware bounds first
-    if (value < allowedMinExposure - EXPOSURE_TOLERANCE) {
-      return {
-        isValid: false,
-        error: `Must be ≥ EV ${formatExposureValue(allowedMinExposure)} (device min)`,
-        sanitizedValue: allowedMinExposure,
-      };
-    }
+  const minPosition = calculatePosition(exposureMin);
+  const maxPosition = calculatePosition(exposureMax);
 
-    if (value > allowedMaxExposure + EXPOSURE_TOLERANCE) {
-      return {
-        isValid: false,
-        error: `Must be ≤ EV ${formatExposureValue(allowedMaxExposure)} (device max)`,
-        sanitizedValue: allowedMaxExposure,
-      };
-    }
-
-    // Check min/max relationship
-    if (isMin && value > exposureMax + EXPOSURE_TOLERANCE) {
-      return {
-        isValid: false,
-        error: `Min must be ≤ max (EV ${formatExposureValue(exposureMax)})`,
-        sanitizedValue: exposureMax,
-      };
-    }
-
-    if (!isMin && value < exposureMin - EXPOSURE_TOLERANCE) {
-      return {
-        isValid: false,
-        error: `Max must be ≥ min (EV ${formatExposureValue(exposureMin)})`,
-        sanitizedValue: exposureMin,
-      };
-    }
-
-    // Clamp to valid range
-    const sanitizedValue = Math.min(allowedMaxExposure, Math.max(allowedMinExposure, value));
-    return { isValid: true, error: null, sanitizedValue };
+  const handleSliderChange = (values: number[]) => {
+    const [newMin, newMax] = values;
+    const roundedMin = Math.round(newMin * 100) / 100;
+    const roundedMax = Math.round(newMax * 100) / 100;
+    onExposureMinChange(roundedMin);
+    onExposureMaxChange(roundedMax);
   };
 
-  const commitMinExposure = (override?: string) => {
-    const value = typeof override === 'string' ? override : minInput;
-    const parsed = parseInputValue(value);
-    
-    if (parsed === null) {
-      setMinError('Enter a numeric value.');
-      return;
-    }
-
-    const validation = validateExposureValue(parsed, true);
-    
-    if (!validation.isValid) {
-      setMinError(validation.error);
-      return;
-    }
-
-    setMinError(null);
-    onExposureMinChange(validation.sanitizedValue);
-  };
-
-  const commitMaxExposure = (override?: string) => {
-    const value = typeof override === 'string' ? override : maxInput;
-    const parsed = parseInputValue(value);
-    
-    if (parsed === null) {
-      setMaxError('Enter a numeric value.');
-      return;
-    }
-
-    const validation = validateExposureValue(parsed, false);
-    
-    if (!validation.isValid) {
-      setMaxError(validation.error);
-      return;
-    }
-
-    setMaxError(null);
-    onExposureMaxChange(validation.sanitizedValue);
-  };
-
-  const debounceMinValidation = (value: string) => {
-    if (minValidationTimeout.current) {
-      clearTimeout(minValidationTimeout.current);
-    }
-    minValidationTimeout.current = setTimeout(() => {
-      commitMinExposure(value);
-    }, VALIDATION_DELAY_MS);
-  };
-
-  const debounceMaxValidation = (value: string) => {
-    if (maxValidationTimeout.current) {
-      clearTimeout(maxValidationTimeout.current);
-    }
-    maxValidationTimeout.current = setTimeout(() => {
-      commitMaxExposure(value);
-    }, VALIDATION_DELAY_MS);
+  const renderCustomLabel = (value: number, position: number, index: number) => {
+    const bubbleLeft = position - 25;
+    return (
+      <View 
+        key={index}
+        style={[
+          styles.labelBubble,
+          { left: Math.max(0, Math.min(bubbleLeft, sliderLength - 50)) }
+        ]}
+      >
+        <View style={styles.labelBubbleContent}>
+          <Text style={styles.labelBubbleText}>{formatExposureValue(value)}</Text>
+        </View>
+        <View style={styles.labelBubblePointer} />
+      </View>
+    );
   };
 
   return (
@@ -223,77 +89,62 @@ export const ExposureSetting: React.FC<ExposureSettingProps> = ({
       </SettingRow>
       {exposureMode === 'manual' && (
         <>
-          <Text style={styles.sectionLabel}>Exposure Range</Text>
-          
-          {/* Device capability info */}
-          <View style={styles.deviceInfoContainer}>
-            <Text style={styles.deviceInfoText}>
-              Device range: EV {formatExposureValue(allowedMinExposure)} to EV {formatExposureValue(allowedMaxExposure)}
-            </Text>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <View style={styles.inputCard}>
-              <Text style={styles.inputLabel}>Minimum Exposure</Text>
-              <TextInput
-                ref={minInputRef}
-                style={[styles.textInput, minError && styles.inputError]}
-                value={minInput}
-                onChangeText={text => {
-                  setMinInput(text);
-                  if (minError) {
-                    setMinError(null);
-                  }
-                  debounceMinValidation(text);
+          <View style={styles.sliderContainer}>
+            <View style={styles.sliderWrapper}>
+              <View style={styles.labelContainer}>
+                {renderCustomLabel(exposureMin, minPosition, 0)}
+                {renderCustomLabel(exposureMax, maxPosition, 1)}
+              </View>
+              <MultiSlider
+                values={[exposureMin, exposureMax]}
+                onValuesChange={handleSliderChange}
+                min={allowedMinExposure}
+                max={allowedMaxExposure}
+                step={0.1}
+                sliderLength={280}
+                selectedStyle={{
+                  backgroundColor: '#0EA5E9',
+                  height: 4,
                 }}
-                onBlur={() => commitMinExposure()}
-                onSubmitEditing={() => commitMinExposure()}
-                keyboardType="numbers-and-punctuation"
-                returnKeyType="done"
-                placeholder={`Enter Minimum Exposure`}
-                placeholderTextColor="#9CA3AF"
-                testID="exposure-min-input"
-                autoFocus={false}
-              />
-           
-              {minError && <Text style={styles.errorText}>{minError}</Text>}
-            </View>
-
-            <View style={styles.inputCard}>
-              <Text style={styles.inputLabel}>Maximum Exposure</Text>
-              <TextInput
-                ref={maxInputRef}
-                style={[styles.textInput, maxError && styles.inputError]}
-                value={maxInput}
-                onChangeText={text => {
-                  setMaxInput(text);
-                  if (maxError) {
-                    setMaxError(null);
-                  }
-                  debounceMaxValidation(text);
+                unselectedStyle={{
+                  backgroundColor: '#E5E7EB',
+                  height: 4,
                 }}
-                onBlur={() => commitMaxExposure()}
-                onSubmitEditing={() => commitMaxExposure()}
-                keyboardType="numbers-and-punctuation"
-                returnKeyType="done"
-                placeholder={`Enter Maximum Exposure`}
-                placeholderTextColor="#9CA3AF"
-                testID="exposure-max-input"
-                autoFocus={false}
+                markerStyle={{
+                  backgroundColor: '#0EA5E9',
+                  height: 24,
+                  width: 24,
+                  borderRadius: 12,
+                  borderWidth: 3,
+                  borderColor: '#FFFFFF',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.2,
+                  shadowRadius: 3,
+                  elevation: 4,
+                }}
+                pressedMarkerStyle={{
+                  backgroundColor: '#0284C7',
+                  height: 28,
+                  width: 28,
+                  borderRadius: 14,
+                }}
+                enableLabel={false}
+                allowOverlap={false}
+                minMarkerOverlapDistance={40}
               />
-         
-              {maxError && <Text style={styles.errorText}>{maxError}</Text>}
+              <View style={styles.sliderLabelsRow}>
+                <Text style={[styles.sliderLabel, styles.sliderLabelStart]}>MIN: {formatExposureValue(allowedMinExposure)}</Text>
+                <Text style={[styles.sliderLabel, styles.sliderLabelEnd]}>MAX: {formatExposureValue(allowedMaxExposure)}</Text>
+              </View>
             </View>
           </View>
-
-   
         </>
       )}
     </View>
   );
 };
 
-// Helper function to format exposure values for display
 const formatExposureValue = (value: number): string => {
   if (!Number.isFinite(value)) {
     return '0';
@@ -336,75 +187,70 @@ const styles = StyleSheet.create({
     color: '#92400E',
     fontWeight: '500',
   },
-  inputGroup: {
+  sliderContainer: {
     paddingHorizontal: 16,
-  },
-  inputCard: {
-    backgroundColor: '#F9FAFB',
-    borderRadius: 10,
-    padding: 12,
     marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
   },
-  inputLabel: {
-    fontSize: 12,
-    color: '#6B7280',
-    fontWeight: '600',
-    marginBottom: 6,
-  },
-  textInput: {
-    borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 14,
-    color: '#111827',
-    backgroundColor: '#fff',
-  },
-  inputError: {
-    borderColor: '#F87171',
-  },
-  helperText: {
-    fontSize: 11,
-    color: '#9CA3AF',
-    marginTop: 6,
-  },
-  errorText: {
-    fontSize: 11,
-    color: '#DC2626',
-    marginTop: 6,
-    fontWeight: '600',
-  },
-  currentExposureContainer: {
-    backgroundColor: '#ECFDF5',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginHorizontal: 16,
-    marginBottom: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#A7F3D0',
+  sliderWrapper: {
     alignItems: 'center',
+    paddingVertical: 1,
   },
-  currentExposureLabel: {
-    fontSize: 11,
-    color: '#065F46',
+  labelContainer: {
+    width: 280,
+    height: 50,
+    position: 'relative',
+  },
+  labelBubble: {
+    alignItems: 'center',
+    position: 'absolute',
+    top: 20,
+  },
+  labelBubbleContent: {
+    backgroundColor: '#0EA5E9',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    minWidth: 50,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  labelBubbleText: {
+    color: '#FFFFFF',
+    fontSize: 12,
     fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
-  currentExposureValue: {
-    fontSize: 20,
-    color: '#047857',
-    fontWeight: '700',
-    marginTop: 4,
+  labelBubblePointer: {
+    width: 0,
+    height: 0,
+    backgroundColor: 'transparent',
+    borderStyle: 'solid',
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 6,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: '#0EA5E9',
+    marginTop: -1,
   },
-  currentExposureHint: {
-    fontSize: 10,
-    color: '#6B7280',
-    marginTop: 2,
+  sliderLabelsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: 300,
+    position: 'relative',
+  },
+  sliderLabel: {
+    fontSize: 12,
+    color: '#0EA5E9',
+    fontWeight: '500',
+  },
+  sliderLabelStart: {
+    textAlign: 'left',
+  },
+  sliderLabelEnd: {
+    textAlign: 'right',
   },
 });
-

@@ -18,6 +18,8 @@ export interface RecordingSettings {
     exposureMax: number;
     isoMode: 'auto' | 'manual';
     iso: number;
+    isoMin: number;
+    isoMax: number;
     hdr: boolean;
     tapToFocusEnabled: boolean;
   };
@@ -56,6 +58,8 @@ export const defaultSettings: RecordingSettings = {
     exposureMax: 0,
     isoMode: 'manual',
     iso: 100,
+    isoMin: 100,
+    isoMax: 3200,
     hdr: false,
     tapToFocusEnabled: true,
   },
@@ -87,6 +91,13 @@ export const loadSettings = async (): Promise<RecordingSettings> => {
       }
       if (loadedSettings.camera && typeof loadedSettings.camera.exposureMax === 'undefined') {
         loadedSettings.camera.exposureMax = defaultSettings.camera.exposureMax;
+      }
+      // Backward compatibility: add isoMin and isoMax if they don't exist
+      if (loadedSettings.camera && typeof loadedSettings.camera.isoMin === 'undefined') {
+        loadedSettings.camera.isoMin = loadedSettings.camera.iso ?? defaultSettings.camera.isoMin;
+      }
+      if (loadedSettings.camera && typeof loadedSettings.camera.isoMax === 'undefined') {
+        loadedSettings.camera.isoMax = defaultSettings.camera.isoMax;
       }
       return loadedSettings;
     }
