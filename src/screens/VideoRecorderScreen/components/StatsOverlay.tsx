@@ -9,16 +9,20 @@ import {
 interface StatsOverlayProps {
   cpuUsage: number;
   memoryUsage: number;
-  storageUsage: number;
-  totalStorageGB: number;
+  recordingVideoSizeGB: number;
+  isRecording: boolean;
 }
 
-const StatsOverlay: React.FC<StatsOverlayProps> = memo(({ 
-  cpuUsage, 
-  memoryUsage, 
-  storageUsage,
-  totalStorageGB
+const StatsOverlay: React.FC<StatsOverlayProps> = memo(({
+  cpuUsage,
+  memoryUsage,
+  recordingVideoSizeGB,
+  isRecording
 }) => {
+  const videoSizeMB = recordingVideoSizeGB > 0
+    ? (recordingVideoSizeGB * 1024).toFixed(2)
+    : '0';
+
   return (
     <View style={styles.leftSidebar}>
       <View style={styles.statCard}>
@@ -30,7 +34,7 @@ const StatsOverlay: React.FC<StatsOverlayProps> = memo(({
       </View>
 
       <View style={styles.statCard}>
-        <Text style={styles.statLabel}>MEMORY</Text>  
+        <Text style={styles.statLabel}>MEMORY</Text>
         <Text style={styles.statValue}>{Math.round(memoryUsage)} Mb</Text>
         <View style={styles.progressBar}>
           <View style={[styles.progressFill, { width: `${(memoryUsage / 50) * 100}%`, backgroundColor: '#10B981' }]} />
@@ -39,8 +43,8 @@ const StatsOverlay: React.FC<StatsOverlayProps> = memo(({
 
       <View style={styles.statCard}>
         <Text style={styles.statLabel}>STORAGE</Text>
-        <Text style={styles.statValue}>{storageUsage.toFixed(2)} / {totalStorageGB.toFixed(2)}</Text>
-        <Text style={styles.statUnit}>GB</Text>
+        <Text style={styles.statValue}>{videoSizeMB} MB</Text>
+        <Text style={styles.statUnit}>{isRecording ? 'Recording' : 'Ready'}</Text>
       </View>
     </View>
   );
