@@ -7,6 +7,8 @@ import {
   PermissionsAndroid,
   Animated,
   Pressable,
+  AppState,
+  AppStateStatus,
 } from 'react-native';
 import { Camera, useCameraDevice, useCameraPermission, useMicrophonePermission, useCameraFormat } from 'react-native-vision-camera';
 import RNFS from 'react-native-fs';
@@ -62,6 +64,8 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const [isProcessing, setIsProcessing] = useState(false);
   const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
   const [cameraLayout, setCameraLayout] = useState({ width: 0, height: 0 });
+  const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
+  const [isCameraActive, setIsCameraActive] = useState(true);
 
   const camera = useRef<Camera>(null);
   const focusFadeAnim = useRef(new Animated.Value(0)).current;
@@ -73,6 +77,8 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const layoutTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentRecordingPathRef = useRef<string | null>(null);
   const findFileIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const wasRecordingBeforeBackgroundRef = useRef<boolean>(false);
 
   const { 
     cpuUsage, 
@@ -129,8 +135,12 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
 
     checkPermissions();
 
+    // Handle app state changes (background/foreground)
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+
     return () => {
       isMountedRef.current = false;
+      subscription.remove();
       if (layoutTimeoutRef.current) {
         clearTimeout(layoutTimeoutRef.current);
         layoutTimeoutRef.current = null;
@@ -138,6 +148,45 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       Orientation.unlockAllOrientations();
     };
   }, []);
+
+  const handleAppStateChange = useCallback(async (nextAppState: AppStateStatus) => {
+    const previousAppState = appStateRef.current;
+    appStateRef.current = nextAppState;
+    setAppState(nextAppState);
+
+    // App came to foreground
+    if (previousAppState.match(/inactive|background/) && nextAppState === 'active') {
+      console.log('App came to foreground');
+
+      // Reactivate camera when returning to foreground
+      setIsCameraActive(true);
+
+      // If we were recording before backgrounding, the recording continues
+      if (wasRecordingBeforeBackgroundRef.current) {
+        console.log('Recording was active before background, camera reactivated');
+        // The recording continues in background via audio session
+        // Camera preview resumes when isActive=true
+      }
+
+      wasRecordingBeforeBackgroundRef.current = false;
+    }
+
+    // App went to background
+    if (previousAppState === 'active' && nextAppState.match(/inactive|background/)) {
+      console.log('App went to background');
+
+      // Remember if we were recording
+      if (isRecording) {
+        wasRecordingBeforeBackgroundRef.current = true;
+        console.log('Recording will continue in background');
+        // Keep camera active during recording to maintain the recording session
+        // The background audio mode will keep the recording going
+      } else {
+        // If not recording, deactivate camera to save resources
+        setIsCameraActive(false);
+      }
+    }
+  }, [isRecording]);
 
   const checkPermissions = async () => {
     if (!hasCameraPermission) {
@@ -463,7 +512,8 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
             continue;
           }
           const videoFiles = files.filter(file => {
-            if (file.isDirectory) {
+            // Skip directories
+            if (file.isDirectory()) {
               return false;
             }
             const name = file.name.toLowerCase();
@@ -524,6 +574,13 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       Alert.alert('Error', 'Camera not ready');
       return;
     }
+    
+    // Verify camera is still valid
+    if (!device || !format) {
+      Alert.alert('Error', 'Camera device not available. Please try again.');
+      return;
+    }
+    
     try {
       if (!isMountedRef.current) return;
       const synchronizedStartTime = Date.now();
@@ -598,11 +655,42 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
             findFileIntervalRef.current = null;
           }
           console.error('Recording error:', error);
+
+          // Check if error is due to app backgrounding/foregrounding
+          const errorMessage = String(error?.message || '');
+          const isBackgroundRelatedError = errorMessage.toLowerCase().includes('session') ||
+                                          errorMessage.toLowerCase().includes('interrupted') ||
+                                          errorMessage.toLowerCase().includes('background');
+
+          // Don't show error popup for background-related interruptions
+          // The recording should continue when app returns to foreground
+          if (isBackgroundRelatedError && wasRecordingBeforeBackgroundRef.current) {
+            console.log('Background-related recording interruption detected, ignoring...');
+            return;
+          }
+
+          // Only show error for genuine recording failures
+          const displayErrorMessage = 'Failed to record video. Please check camera permissions and try again.';
+
           if (isMountedRef.current) {
             setRecordingVideoPath(null);
             currentRecordingPathRef.current = null;
-            Alert.alert('Error', 'Failed to record video');
+            Alert.alert('Recording Error', displayErrorMessage, [
+              {
+                text: 'OK',
+                onPress: () => {
+                  // Reset state
+                  if (isMountedRef.current) {
+                    setIsRecording(false);
+                    stopTimer();
+                    stopGPSDataCollection();
+                    stopGyroscopeDataCollection();
+                  }
+                }
+              }
+            ]);
           }
+
           if (isMountedRef.current) {
             setIsRecording(false);
             stopTimer();
@@ -629,7 +717,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         stopGyroscopeDataCollection();
       }
     }
-  }, [startTimer, startGPSDataCollection, startGyroscopeDataCollection, resetStats, stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, handleVideoSave, findRecordingFile, setRecordingVideoPath]);
+      }, [startTimer, startGPSDataCollection, startGyroscopeDataCollection, resetStats, stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, handleVideoSave, findRecordingFile, setRecordingVideoPath, device, format]);
 
   const pauseRecording = useCallback(async () => {
     if (!isMountedRef.current || !camera.current) return;
@@ -745,7 +833,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
           ref={camera}
           style={styles.camera}
           device={device}
-          isActive={true}
+          isActive={isCameraActive}
           photo={true}
           video={true}
           audio={true}
