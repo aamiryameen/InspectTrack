@@ -1,13 +1,15 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SettingRow } from './SettingRow';
-import { CameraDeviceFormat } from 'react-native-vision-camera';
+import { CameraDeviceFormat, CameraDevice } from 'react-native-vision-camera';
 
 interface FrameRateSettingProps {
   frameRate: number;
   frameRateOptions: number[];
   isExpanded: boolean;
   format?: CameraDeviceFormat;
+  device?: CameraDevice;
+  resolution?: { width: number; height: number };
   onToggleExpand: () => void;
   onSelectFrameRate: (fps: number) => void;
 }
@@ -17,10 +19,41 @@ export const FrameRateSetting: React.FC<FrameRateSettingProps> = ({
   frameRateOptions,
   isExpanded,
   format,
+  device,
+  resolution,
   onToggleExpand,
   onSelectFrameRate,
 }) => {
   const actualFps = format ? Math.min(format.maxFps, frameRate) : frameRate;
+
+  const isFrameRateSupported = (fps: number): boolean => {
+    if (!device?.formats || !resolution) {
+      const fallbackSupported = format ? fps >= format.minFps && fps <= format.maxFps : true;
+      return fallbackSupported;
+    }
+
+    const exactMatchingFormats = device.formats.filter(
+      f => f.videoWidth === resolution.width && f.videoHeight === resolution.height
+    );
+
+    let isSupported = exactMatchingFormats.length > 0 && exactMatchingFormats.some(f => fps >= f.minFps && fps <= f.maxFps);
+
+    if (!isSupported) {
+      const aspectRatio = resolution.width / resolution.height;
+      const aspectRatioFormats = device.formats.filter(f => {
+        const formatAspectRatio = f.videoWidth / f.videoHeight;
+        return Math.abs(formatAspectRatio - aspectRatio) < 0.01;
+      });
+      isSupported = aspectRatioFormats.length > 0 && aspectRatioFormats.some(f => fps >= f.minFps && fps <= f.maxFps);
+    }
+
+    if (!isSupported) {
+      isSupported = device.formats.some(f => fps >= f.minFps && fps <= f.maxFps);
+    }
+
+    return isSupported;
+  };
+
   return (
     <View style={styles.settingCard}>
       <SettingRow icon="▦" label="Frame Rate" color="#84CC16">
@@ -32,7 +65,8 @@ export const FrameRateSetting: React.FC<FrameRateSettingProps> = ({
       {isExpanded && (
         <View style={styles.dropdownOptions}>
           {frameRateOptions.map((option) => {
-            const isSupported = format ? option <= format.maxFps && option >= format.minFps : true;
+            const isSupported = isFrameRateSupported(option);
+
             return (
               <TouchableOpacity
                 key={option}
@@ -41,8 +75,13 @@ export const FrameRateSetting: React.FC<FrameRateSettingProps> = ({
                   frameRate === option && styles.dropdownOptionSelected,
                   !isSupported && styles.dropdownOptionDisabled,
                 ]}
-                onPress={() => onSelectFrameRate(option)}
+                onPress={() => {
+                  if (isSupported) {
+                    onSelectFrameRate(option);
+                  }
+                }}
                 disabled={!isSupported}
+                activeOpacity={isSupported ? 0.7 : 1.0}
               >
                 <Text
                   style={[
