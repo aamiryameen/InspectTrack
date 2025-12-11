@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -121,14 +121,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
   const lensOptions = ['0.5x', '1x', '2x', '3x'];
   const resolutionOptions: Array<'720p' | '1080p' | '4K'> = ['720p', '1080p', '4K'];
-  
-  const getAvailableFrameRateOptions = (): number[] => {
-    const allOptions = [24, 30, 60];
-    if (!format) return allOptions;
-    return allOptions.filter(fps => fps >= format.minFps && fps <= format.maxFps);
-  };
-  
-  const frameRateOptions = getAvailableFrameRateOptions();
 
   const getResolutionDimensions = (resolution: '720p' | '1080p' | '4K'): { width: number; height: number } => {
     switch (resolution) {
@@ -160,37 +152,49 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
   const resolution = getResolutionDimensions(settings.video.resolution);
   
+  const frameRateOptions = [24, 30, 60];
+  
   const format = useCameraFormat(device, [
     { videoResolution: resolution },
     { fps: settings.frameRate.fps }
   ]);
 
   const getMaxSupportedFps = (): number => {
-    if (!format) {
-      if (!device?.formats) return 30;
-      const matchingFormats = device.formats.filter(
-        f => f.videoWidth === resolution.width && f.videoHeight === resolution.height
-      );
-      if (matchingFormats.length === 0) return 30;
-      return Math.max(...matchingFormats.map(f => f.maxFps));
-    }
-    return format.maxFps;
+    if (!device?.formats) return 60;
+    const matchingFormats = device.formats.filter(
+      f => f.videoWidth === resolution.width && f.videoHeight === resolution.height
+    );
+    if (matchingFormats.length === 0) return 60;
+    return Math.max(...matchingFormats.map(f => f.maxFps));
+  };
+
+  const getMinSupportedFps = (): number => {
+    if (!device?.formats) return 24;
+    const matchingFormats = device.formats.filter(
+      f => f.videoWidth === resolution.width && f.videoHeight === resolution.height
+    );
+    if (matchingFormats.length === 0) return 24;
+    return Math.min(...matchingFormats.map(f => f.minFps));
   };
 
   const validateAndAdjustFps = (fps: number): number => {
     const maxFps = getMaxSupportedFps();
+    const minFps = getMinSupportedFps();
     if (fps > maxFps) {
+      console.log(`📹 Clamping fps from ${fps} to max ${maxFps}`);
       return maxFps;
     }
-    const minFps = format?.minFps || 24;
     if (fps < minFps) {
+      console.log(`📹 Clamping fps from ${fps} to min ${minFps}`);
       return minFps;
     }
     return fps;
   };
 
   useEffect(() => {
-    if (format && settings.frameRate.fps > format.maxFps) {
+    const maxSupportedFps = getMaxSupportedFps();
+    if (settings.frameRate.fps > maxSupportedFps) {
+      console.log(`📹 Auto-adjusting fps from ${settings.frameRate.fps} to ${maxSupportedFps} (max supported)`);
       const adjustedFps = validateAndAdjustFps(settings.frameRate.fps);
       const updatedSettings = {
         ...settings,
@@ -203,7 +207,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       setSelectedFrameRate(adjustedFps);
       saveSettings(updatedSettings);
     }
-  }, [format, settings.video.resolution]);
+  }, [device?.formats, settings.video.resolution]);
 
   useEffect(() => {
     if (device?.formats) {
@@ -306,7 +310,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
 
   useEffect(() => {
     Orientation.lockToPortrait();
-    
     return () => {
       Orientation.unlockAllOrientations();
     };
@@ -320,7 +323,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   };
 
   const startRecording = () => {
-      const currentSettings: RecordingSettings = {
+    const currentSettings: RecordingSettings = {
       ...settings,
       camera: {
         ...settings.camera,
@@ -391,19 +394,41 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   };
 
   const handleFrameRateChange = async (fps: number) => {
-    const validatedFps = validateAndAdjustFps(fps);
-    
-    const newSettings = {
-      ...settings,
-      frameRate: {
-        ...settings.frameRate,
-        fps: validatedFps,
-      },
-    };
-    setSettings(newSettings);
-    setSelectedFrameRate(validatedFps);
-    await saveSettings(newSettings);
-    setFrameRateExpanded(false);
+    console.log(`📹 [handleFrameRateChange] User selected ${fps} fps`);
+
+    const maxFps = getMaxSupportedFps();
+    const minFps = getMinSupportedFps();
+
+    console.log(`📹 [handleFrameRateChange] Supported range: ${minFps}-${maxFps} fps`);
+
+    if (fps >= minFps && fps <= maxFps) {
+      console.log(`📹 [handleFrameRateChange] ${fps} fps is within supported range, applying directly`);
+      const newSettings = {
+        ...settings,
+        frameRate: {
+          ...settings.frameRate,
+          fps: fps,
+        },
+      };
+      setSettings(newSettings);
+      setSelectedFrameRate(fps);
+      await saveSettings(newSettings);
+      setFrameRateExpanded(false);
+    } else {
+      const validatedFps = validateAndAdjustFps(fps);
+      console.log(`📹 [handleFrameRateChange] Adjusted ${fps} fps to ${validatedFps} fps`);
+      const newSettings = {
+        ...settings,
+        frameRate: {
+          ...settings.frameRate,
+          fps: validatedFps,
+        },
+      };
+      setSettings(newSettings);
+      setSelectedFrameRate(validatedFps);
+      await saveSettings(newSettings);
+      setFrameRateExpanded(false);
+    }
   };
 
   const handleExposureModeChange = async (mode: 'auto' | 'manual') => {
@@ -420,7 +445,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   };
 
   const handleExposureChange = async (value: number) => {
-    // Clamp exposure value between hardware capabilities and selected range
     const boundedValue = Math.max(hardwareMinExposure, Math.min(value, hardwareMaxExposure));
     const clampedValue = Math.max(exposureMin, Math.min(boundedValue, exposureMax));
     setExposure(clampedValue);
@@ -638,6 +662,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
               frameRateOptions={frameRateOptions}
               isExpanded={frameRateExpanded}
               format={format}
+              device={device}
+              resolution={resolution}
               onToggleExpand={() => setFrameRateExpanded(!frameRateExpanded)}
               onSelectFrameRate={handleFrameRateChange}
             />
