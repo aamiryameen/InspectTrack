@@ -74,20 +74,19 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const startTimeRef = useRef<string>('');
   const endTimeRef = useRef<string>('');
   const isMountedRef = useRef<boolean>(true);
+  const isRecordingRef = useRef<boolean>(false);
   const layoutTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentRecordingPathRef = useRef<string | null>(null);
   const findFileIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const wasRecordingBeforeBackgroundRef = useRef<boolean>(false);
 
-  const { 
-    cpuUsage, 
-    memoryUsage, 
-    storageUsage, 
-    totalStorageGB,
+  const {
+    cpuUsage,
+    memoryUsage,
     recordingVideoSizeGB,
-    cpuStatsRef, 
-    memoryStatsRef, 
+    cpuStatsRef,
+    memoryStatsRef,
     resetStats,
     setRecordingVideoPath
   } = useSystemMonitoring(isRecording);
@@ -479,14 +478,11 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
 
   const findRecordingFile = useCallback(async (): Promise<string | null> => {
     try {
-      const tempDirs = Platform.OS === 'ios' 
+      const tempDirs = Platform.OS === 'ios'
         ? [
-            `${RNFS.DocumentDirectoryPath}/Files/InspectTrack`,
-            `${RNFS.CachesDirectoryPath}/Files/InspectTrack`,
-            `${RNFS.DocumentDirectoryPath}/Files`,
+            RNFS.DocumentDirectoryPath,
             RNFS.CachesDirectoryPath,
             RNFS.TemporaryDirectoryPath,
-            RNFS.DocumentDirectoryPath,
           ]
         : [
             RNFS.CachesDirectoryPath,
@@ -501,9 +497,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       for (const dir of tempDirs) {
         try {
           const dirExists = await RNFS.exists(dir);
-          if (!dirExists) {
-            continue;
-          }
+          if (!dirExists) continue;
 
           let files;
           try {
@@ -511,39 +505,43 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
           } catch (readError) {
             continue;
           }
+
           const videoFiles = files.filter(file => {
-            // Skip directories
-            if (file.isDirectory()) {
-              return false;
-            }
+            if (file.isDirectory()) return false;
             const name = file.name.toLowerCase();
-            return name.endsWith('.mp4') || 
+            return name.endsWith('.mp4') ||
                    name.endsWith('.mov') ||
-                   name.endsWith('.m4v');
+                   name.endsWith('.m4v') ||
+                   (name.startsWith('video_') && !name.includes('.'));
           });
-          
+
+          if (videoFiles.length > 0) {
+            console.log(`📂 Found ${videoFiles.length} video file(s) in:`, dir);
+          }
+
           for (const file of videoFiles) {
             try {
               const fileInfo = await RNFS.stat(file.path);
               const fileSize = fileInfo.size || 0;
               const minSize = Platform.OS === 'ios' ? 100 : 1000;
-              if (fileSize < minSize) {
-                continue;
-              }
+              if (fileSize < minSize) continue;
+
               const mtime = fileInfo.mtime || 0;
               const ctime = fileInfo.ctime || mtime;
               const timeSinceModified = currentTime - mtime;
               const timeSinceCreated = currentTime - ctime;
               const timeWindow = Platform.OS === 'ios' ? 300000 : 120000;
-              const isRecent = (mtime > 0 && timeSinceModified < timeWindow) || 
+              const isRecent = (mtime > 0 && timeSinceModified < timeWindow) ||
                               (ctime > 0 && timeSinceCreated < timeWindow);
+
               if (isRecent && fileSize >= 0) {
                 const timeScore = Math.max(mtime, ctime);
                 const sizeScore = fileSize / 1000000;
                 const score = timeScore + sizeScore;
-                const currentScore = mostRecentFile 
+                const currentScore = mostRecentFile
                   ? Math.max(mostRecentFile.mtime, mostRecentFile.ctime) + (mostRecentFile.size / 1000000)
                   : 0;
+
                 if (!mostRecentFile || score > currentScore) {
                   mostRecentFile = {
                     path: file.path,
@@ -564,7 +562,6 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
 
       return mostRecentFile?.path || null;
     } catch (error) {
-      console.warn('Error finding recording file:', error);
       return null;
     }
   }, []);
@@ -599,8 +596,12 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         hour12: true
       });
 
+      isRecordingRef.current = true;
+
       findFileIntervalRef.current = setInterval(async () => {
-        if (!isMountedRef.current || !isRecording) {
+        console.log('⏰ Interval tick - isRecordingRef:', isRecordingRef.current, 'isMounted:', isMountedRef.current);
+        if (!isMountedRef.current || !isRecordingRef.current) {
+          console.log('⏸️ Stopping interval');
           if (findFileIntervalRef.current) {
             clearInterval(findFileIntervalRef.current);
             findFileIntervalRef.current = null;
@@ -609,6 +610,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         }
         try {
           const recordingPath = await findRecordingFile();
+          console.log('📁 Search returned:', recordingPath ? 'FILE FOUND' : 'NO FILE');
           if (recordingPath && isMountedRef.current) {
             try {
               const fileInfo = await RNFS.stat(recordingPath);
@@ -625,10 +627,12 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
                 if (currentRecordingPathRef.current !== recordingPath) {
                   currentRecordingPathRef.current = recordingPath;
                   setRecordingVideoPath(recordingPath);
-                  console.log('📹 Found recording file:', recordingPath, 'Size:', fileSize, 'bytes');
+                  console.log('✅ Found & set recording file:', recordingPath, 'Size:', fileSize, 'bytes');
                 } else {
                   setRecordingVideoPath(recordingPath);
                 }
+              } else {
+                console.log('⏭️ File found but conditions not met:', recordingPath, 'Size:', fileSize, 'isRecent:', isRecent);
               }
             } catch (statError) {
             }
@@ -723,6 +727,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     if (!isMountedRef.current || !camera.current) return;
     try {
       if (!isMountedRef.current) return;
+      isRecordingRef.current = false;
       setIsProcessing(true);
       stopGPSDataCollection();
       stopGyroscopeDataCollection();
@@ -862,8 +867,8 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         <StatsOverlay
           cpuUsage={cpuUsage}
           memoryUsage={memoryUsage}
-          storageUsage={storageUsage}
-          totalStorageGB={totalStorageGB}
+          recordingVideoSizeGB={recordingVideoSizeGB}
+          isRecording={isRecording}
         />
 
         <InfoOverlay
