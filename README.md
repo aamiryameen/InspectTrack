@@ -1,21 +1,5 @@
 # InspectTrack
 
-A React Native mobile application featuring video recording capabilities with an interactive UI.
-
-## Features
-
-- Video recording with camera preview
-- Interactive record/pause controls
-- Automatic video save on pause
-- Real-time recording timer
-- Permission handling for camera, microphone, and storage
-- Cross-platform support (iOS & Android)
-
-## Tech Stack
-
-- React Native version 0.81
-- react-native-vision-camera for recording
-- react-native-fs for download video
 
 ## Installation
 
@@ -33,6 +17,20 @@ yarn ios
 yarn android
 ```
 
-## Contributors
+## Usage
 
-- **Aamir Yameen** ([@aamiryameen](https://github.com/aamiryameen))
+1. **Home Screen (Image Share)**: 
+   - Tap "Choose from Gallery" to select an image from your photo library
+   - Tap "Take Photo" to capture a new image with the camera
+   - Once an image is selected, tap "Share Image" to share it to other apps
+   - Navigate to Recording or Settings using the links at the bottom
+
+2. **Recording Screen**: 
+   - Record videos with the camera
+   - Control recording with pause/resume functionality
+
+3. **Settings Screen**: 
+   - Configure recording settings
+   - Adjust camera parameters
+
+
