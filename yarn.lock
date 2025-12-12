@@ -6069,9 +6069,9 @@ react-is@^18.0.0:
   integrity sha512-/LLMVyas0ljjAtoYiPqYiL8VWXzUUdThrmU5+n20DZv+a+ClRoevUzw5JxU+Ieh5/c87ytoTBV9G1FiKfNJdmg==
 
 react-is@^19.1.0:
-  version "19.2.1"
-  resolved "https://registry.yarnpkg.com/react-is/-/react-is-19.2.1.tgz#712fa6ee30c8398dc34260017325dad92b9224c5"
-  integrity sha512-L7BnWgRbMwzMAubQcS7sXdPdNLmKlucPlopgAzx7FtYbksWZgEWiuYM5x9T6UqS2Ne0rsgQTq5kY2SGqpzUkYA==
+  version "19.2.2"
+  resolved "https://registry.yarnpkg.com/react-is/-/react-is-19.2.2.tgz#ba46d5d670663a0f78dc6af3d33398fe26d71d56"
+  integrity sha512-ADrk8mxPwhyj+IB8EnMMRzxnon5hJrOdEZl+mCrrHXfPGGPYHdRm1962fvXUiWAu/ZC1G+OTgBN3Puq57iS4Yg==
 
 react-native-device-info@^15.0.1:
   version "15.0.1"
