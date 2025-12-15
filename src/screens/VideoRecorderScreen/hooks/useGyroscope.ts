@@ -66,7 +66,6 @@ export const useGyroscope = (settings: RecordingSettings): UseGyroscopeReturn =>
     recordingStartTimeRef.current = recordingStartTime;
     const samplingInterval = settings.gps.updateInterval * 1000;
 
-    // Capture first data point immediately at start time
     const initialTimestamp = recordingStartTime;
     gyroDataRef.current.push({
       timestamp: initialTimestamp,
@@ -75,7 +74,6 @@ export const useGyroscope = (settings: RecordingSettings): UseGyroscopeReturn =>
       z: previousGyroData.current.z,
     });
 
-    // Then continue collecting at intervals
     gyroCollectionInterval.current = setInterval(() => {
       const utcTimestamp = getUTCTimestamp();
 
@@ -113,4 +111,3 @@ export const useGyroscope = (settings: RecordingSettings): UseGyroscopeReturn =>
     stopGyroscopeDataCollection,
   };
 };
-

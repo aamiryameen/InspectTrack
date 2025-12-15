@@ -17,7 +17,6 @@ const DownloadFileScreen: React.FC = () => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [downloadedFiles, setDownloadedFiles] = useState<string[]>([]);
 
-  // Create dummy JSON data
   const createDummyJSON = () => {
     return {
       appName: 'InspectTrack',
@@ -87,31 +86,25 @@ const DownloadFileScreen: React.FC = () => {
     try {
       setIsDownloading(true);
 
-      // Create dummy JSON data
       const jsonData = createDummyJSON();
       const jsonString = JSON.stringify(jsonData, null, 2);
 
-      // Create filename with timestamp
       const timestamp = new Date().getTime();
       const fileName = `InspectTrack_Export_${timestamp}.json`;
 
-      // Define file path based on platform
       const filePath =
         Platform.OS === 'ios'
           ? `${RNFS.DocumentDirectoryPath}/${fileName}`
           : `${RNFS.DownloadDirectoryPath}/${fileName}`;
 
-      // Write JSON file
       await RNFS.writeFile(filePath, jsonString, 'utf8');
 
       console.log('✅ File saved to:', filePath);
 
-      // Add to downloaded files list
       setDownloadedFiles((prev) => [...prev, fileName]);
 
       setIsDownloading(false);
 
-      // On iOS, use Share API to allow users to save/share the file
       if (Platform.OS === 'ios') {
         try {
           const shareOptions = {
@@ -126,7 +119,7 @@ const DownloadFileScreen: React.FC = () => {
           console.log('✅ File shared:', fileName);
         } catch (shareError: any) {
           if (shareError.message !== 'User did not share') {
-            console.error('❌ Error sharing file:', shareError);
+            console.error(' Error sharing file:', shareError);
             Alert.alert(
               'Share Failed',
               'Failed to open share dialog. Please try again.'
@@ -134,20 +127,19 @@ const DownloadFileScreen: React.FC = () => {
           }
         }
       } else {
-        // On Android, file is saved to Downloads folder
         Alert.alert(
           'Export Successful',
           `Your data has been successfully exported to Downloads folder.\n\nFile: ${fileName}`,
           [
             {
               text: 'OK',
-              onPress: () => console.log('✅ File downloaded:', fileName),
+              onPress: () => console.log('File downloaded:', fileName),
             },
           ]
         );
       }
     } catch (error) {
-      console.error('❌ Download error:', error);
+      console.error('Download error:', error);
       setIsDownloading(false);
       Alert.alert(
         'Export Failed',
@@ -168,7 +160,7 @@ const DownloadFileScreen: React.FC = () => {
         .filter((file) => file.name.includes('InspectTrack_Export'))
         .map((file) => `• ${file.name}`)
         .sort()
-        .reverse(); // Most recent first
+        .reverse();
 
       if (jsonFiles.length === 0) {
         Alert.alert(
@@ -185,7 +177,7 @@ const DownloadFileScreen: React.FC = () => {
         [{ text: 'OK' }]
       );
     } catch (error) {
-      console.error('❌ Error reading files:', error);
+      console.error(' Error reading files:', error);
       Alert.alert(
         'Error',
         'Could not read files. Please try again.',

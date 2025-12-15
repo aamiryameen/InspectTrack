@@ -25,27 +25,22 @@ export const useRecordingTimer = (isRecording: boolean): UseRecordingTimerReturn
   const startTimer = useCallback((startTimestamp?: number) => {
     const startTime = startTimestamp || Date.now();
     startTimestampRef.current = startTime;
-    
-    // Clear any existing interval
+
     if (timerRef.current) {
       clearInterval(timerRef.current);
     }
-    
-    // Update immediately to show correct time from start
+
     const updateTime = () => {
       if (startTimestampRef.current) {
         const elapsed = Math.floor((Date.now() - startTimestampRef.current) / 1000);
         setRecordingTime(elapsed);
       }
     };
-    
-    // Set initial time immediately
+
     setRecordingTime(0);
-    
-    // Update every 100ms for smooth, accurate time display
+
     timerRef.current = setInterval(updateTime, 100);
-    
-    // Force an immediate update after a tiny delay to ensure React state update
+
     setTimeout(updateTime, 10);
   }, []);
 
@@ -62,7 +57,6 @@ export const useRecordingTimer = (isRecording: boolean): UseRecordingTimerReturn
     startTimestampRef.current = null;
   }, []);
 
-  // Pulse animation for recording indicator
   useEffect(() => {
     if (isRecording) {
       Animated.loop(
@@ -84,7 +78,6 @@ export const useRecordingTimer = (isRecording: boolean): UseRecordingTimerReturn
     }
   }, [isRecording, pulseAnim]);
 
-  // Cleanup
   useEffect(() => {
     return () => {
       if (timerRef.current) {
@@ -102,4 +95,3 @@ export const useRecordingTimer = (isRecording: boolean): UseRecordingTimerReturn
     formatTime,
   };
 };
-

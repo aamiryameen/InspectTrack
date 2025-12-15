@@ -61,7 +61,6 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
   const [gyroscopeData, setGyroscopeData] = useState<any>(null);
   const [accelerometerData, setAccelerometerData] = useState<any>(null);
 
-  // Lock orientation to portrait mode
   useEffect(() => {
     Orientation.lockToPortrait();
     
@@ -350,4 +349,3 @@ const styles = StyleSheet.create({
 });
 
 export default SummaryScreen;
-
