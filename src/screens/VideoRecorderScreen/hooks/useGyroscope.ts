@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { gyroscope } from 'react-native-sensors';
+import { gyroscope, magnetometer } from 'react-native-sensors';
 import { RecordingSettings } from '../../../utils/settingsUtils';
 
 interface GyroData {

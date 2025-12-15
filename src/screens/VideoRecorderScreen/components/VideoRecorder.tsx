@@ -66,7 +66,8 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
   const [cameraLayout, setCameraLayout] = useState({ width: 0, height: 0 });
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
-  const [isCameraActive, setIsCameraActive] = useState(true);
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const cameraConfigTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const camera = useRef<Camera>(null);
   const focusFadeAnim = useRef(new Animated.Value(0)).current;
@@ -123,6 +124,38 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     setSettings(initialSettings);
   }, [initialSettings]);
 
+  // Handle camera configuration changes - temporarily disable camera when props change
+  useEffect(() => {
+    if (!isMountedRef.current) return;
+    
+    // Don't disable camera if we're currently recording
+    if (isRecordingRef.current) {
+      return;
+    }
+    
+    // Temporarily disable camera during configuration changes
+    setIsCameraActive(false);
+    
+    // Clear any existing timeout
+    if (cameraConfigTimeoutRef.current) {
+      clearTimeout(cameraConfigTimeoutRef.current);
+    }
+    
+    // Re-enable camera after a delay to allow configuration to complete
+    cameraConfigTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current && !isRecordingRef.current) {
+        setIsCameraActive(true);
+      }
+    }, 300);
+    
+    return () => {
+      if (cameraConfigTimeoutRef.current) {
+        clearTimeout(cameraConfigTimeoutRef.current);
+        cameraConfigTimeoutRef.current = null;
+      }
+    };
+  }, [device, format, settings.video.resolution, settings.frameRate.fps, settings.camera.hdr, zoom]);
+
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -136,6 +169,16 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
 
     checkPermissions();
 
+    // Delay camera activation to ensure configuration is complete
+    if (cameraConfigTimeoutRef.current) {
+      clearTimeout(cameraConfigTimeoutRef.current);
+    }
+    cameraConfigTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current) {
+        setIsCameraActive(true);
+      }
+    }, 300);
+
     const subscription = AppState.addEventListener('change', handleAppStateChange);
 
     return () => {
@@ -144,6 +187,10 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       if (layoutTimeoutRef.current) {
         clearTimeout(layoutTimeoutRef.current);
         layoutTimeoutRef.current = null;
+      }
+      if (cameraConfigTimeoutRef.current) {
+        clearTimeout(cameraConfigTimeoutRef.current);
+        cameraConfigTimeoutRef.current = null;
       }
       Orientation.unlockAllOrientations();
     };
@@ -155,7 +202,15 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     setAppState(nextAppState);
 
     if (previousAppState.match(/inactive|background/) && nextAppState === 'active') {
-      setIsCameraActive(true);
+      // Delay camera activation to ensure configuration is complete
+      if (cameraConfigTimeoutRef.current) {
+        clearTimeout(cameraConfigTimeoutRef.current);
+      }
+      cameraConfigTimeoutRef.current = setTimeout(() => {
+        if (isMountedRef.current) {
+          setIsCameraActive(true);
+        }
+      }, 300);
 
       if (wasRecordingBeforeBackgroundRef.current) {
       }
@@ -846,7 +901,6 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         onLayout={handleCameraLayout}
       >
         <Camera
-          key={`${settings.video.resolution}-${settings.frameRate.fps}-${settings.camera.hdr}`}
           ref={camera}
           style={styles.camera}
           device={device}

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Pressable, Animated, LayoutChangeEvent } from 'react-native';
 import { Camera, CameraDevice, CameraDeviceFormat } from 'react-native-vision-camera';
 import { RecordingSettings } from '../../../utils/settingsUtils';
@@ -29,6 +29,8 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
   const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const [cameraLayout, setCameraLayout] = useState({ width: 0, height: 0 });
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const cameraConfigTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fps = format ? Math.min(format.maxFps, settings.frameRate.fps) : settings.frameRate.fps;
   
@@ -44,6 +46,29 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
   
   const videoHdrEnabled = hdr && format?.supportsVideoHdr;
   const photoHdrEnabled = hdr && format?.supportsPhotoHdr;
+
+  // Handle camera configuration changes - temporarily disable camera when props change
+  useEffect(() => {
+    // Temporarily disable camera during configuration changes
+    setIsCameraActive(false);
+    
+    // Clear any existing timeout
+    if (cameraConfigTimeoutRef.current) {
+      clearTimeout(cameraConfigTimeoutRef.current);
+    }
+    
+    // Re-enable camera after a delay to allow configuration to complete
+    cameraConfigTimeoutRef.current = setTimeout(() => {
+      setIsCameraActive(true);
+    }, 300);
+    
+    return () => {
+      if (cameraConfigTimeoutRef.current) {
+        clearTimeout(cameraConfigTimeoutRef.current);
+        cameraConfigTimeoutRef.current = null;
+      }
+    };
+  }, [device, format, settings.video.resolution, settings.frameRate.fps, hdr, zoom]);
 
   const handleCameraLayout = (event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
@@ -120,12 +145,11 @@ export const CameraPreview: React.FC<CameraPreviewProps> = ({
               onLayout={handleCameraLayout}
             >
               <Camera
-                key={`${settings.video.resolution}-${settings.frameRate.fps}-${hdr}`}
                 ref={cameraRef}
                 style={styles.camera}
                 device={device}
                 format={format}
-                isActive={true}
+                isActive={isCameraActive}
                 photo={true}
                 video={true}
                 zoom={zoom}
