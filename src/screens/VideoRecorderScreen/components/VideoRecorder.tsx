@@ -17,7 +17,7 @@ import { getResolutionDimensions, RecordingSettings } from '../../../utils/setti
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { useSystemMonitoring, useGyroscope, useAccelerometer, useLocationTracking, useRecordingTimer } from '../hooks';
+import { useSystemMonitoring, useGyroscope, useAccelerometer, useMagnetometer, useLocationTracking, useRecordingTimer } from '../hooks';
 
 import {
   RecordingBadge,
@@ -47,6 +47,7 @@ type RootStackParamList = {
     gpsFilePath: string;
     gyroscopeFilePath: string;
     accelerometerFilePath: string;
+    magnetometerFilePath: string;
     cameraSettingsFilePath: string;
     settings: RecordingSettings;
   };
@@ -94,6 +95,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   } = useSystemMonitoring(isRecording);
   const { gyroDataRef, startGyroscopeDataCollection, stopGyroscopeDataCollection } = useGyroscope(settings);
   const { accelDataRef, startAccelerometerDataCollection, stopAccelerometerDataCollection } = useAccelerometer(settings);
+  const { magnetometerDataRef, startMagnetometerDataCollection, stopMagnetometerDataCollection } = useMagnetometer(settings);
   const { gpsDataRef, totalDistanceRef, startGPSDataCollection, stopGPSDataCollection } = useLocationTracking(settings);
   const { recordingTime, pulseAnim, startTimer, stopTimer, resetTimer, formatTime } = useRecordingTimer(isRecording);
 
@@ -364,6 +366,27 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     }
   };
 
+  const saveMagnetometerData = async (videoFileName: string, folderPath: string) => {
+    try {
+      const magnetometerFileName = videoFileName.replace('.mp4', '_magnetometer.json');
+      const magnetometerData = {
+        recordingStartTime: recordingStartTime.current,
+        recordingEndTime: recordingEndTime.current,
+        totalFrames: magnetometerDataRef.current.length,
+        frameRate: settings.frameRate.fps,
+        videoResolution: settings.video.resolution,
+        timestampFormat: settings.metadata.timestampFormat,
+        magnetometerPoints: magnetometerDataRef.current,
+      };
+      const magnetometerFilePath = `${folderPath}/${magnetometerFileName}`;
+      await RNFS.writeFile(magnetometerFilePath, JSON.stringify(magnetometerData, null, 2), 'utf8');
+      return magnetometerFileName;
+    } catch (error) {
+      console.error('Error saving magnetometer data:', error);
+      return null;
+    }
+  };
+
   const saveGPSData = async (videoFileName: string, folderPath: string) => {
     try {
       const gpsFileName = videoFileName.replace('.mp4', '_gps.json');
@@ -456,6 +479,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       const gpsFileName = await saveGPSData(fileName, folderPath);
       const gyroscopeFileName = await saveGyroscopeData(fileName, folderPath);
       const accelerometerFileName = await saveAccelerometerData(fileName, folderPath);
+      const magnetometerFileName = await saveMagnetometerData(fileName, folderPath);
       const cameraSettingsFileName = await saveCameraSettings(fileName, folderPath);
 
       const avgCPU = cpuStatsRef.current.length > 0
@@ -484,12 +508,14 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       const gpsFilePath = `${folderPath}/${gpsFileName}`;
       const gyroscopeFilePath = `${folderPath}/${gyroscopeFileName}`;
       const accelerometerFilePath = `${folderPath}/${accelerometerFileName}`;
+      const magnetometerFilePath = `${folderPath}/${magnetometerFileName}`;
       const cameraSettingsFilePath = `${folderPath}/${cameraSettingsFileName}`;
 
       const videoSaved = await verifyFileSaved(destPath, 'Video');
       const gpsSaved = await verifyFileSaved(gpsFilePath, 'GPS');
       const gyroSaved = await verifyFileSaved(gyroscopeFilePath, 'Gyroscope');
       const accelSaved = await verifyFileSaved(accelerometerFilePath, 'Accelerometer');
+      const magnetometerSaved = await verifyFileSaved(magnetometerFilePath, 'Magnetometer');
       const cameraSettingsSaved = await verifyFileSaved(cameraSettingsFilePath, 'Camera Settings');
 
       if (isMountedRef.current) {
@@ -497,7 +523,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         resetTimer();
 
         const saveLocation = Platform.OS === 'ios' ? 'Files app' : 'Downloads folder';
-        const allSaved = videoSaved && gpsSaved && gyroSaved && accelSaved && cameraSettingsSaved;
+        const allSaved = videoSaved && gpsSaved && gyroSaved && accelSaved && magnetometerSaved && cameraSettingsSaved;
 
         if (allSaved) {
           Alert.alert(
@@ -508,6 +534,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
             `📍 ${gpsDataRef.current.length} GPS points\n` +
             `🔄 ${gyroDataRef.current.length} Gyroscope points\n` +
             `📊 ${accelDataRef.current.length} Accelerometer points\n` +
+            `🧲 ${magnetometerDataRef.current.length} Magnetometer points\n` +
             `⚙️ Camera settings`,
             [{ text: 'OK' }]
           );
@@ -534,6 +561,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
               gpsFilePath: gpsFilePath,
               gyroscopeFilePath: gyroscopeFilePath,
               accelerometerFilePath: accelerometerFilePath,
+              magnetometerFilePath: magnetometerFilePath,
               cameraSettingsFilePath: cameraSettingsFilePath,
               settings: settings,
             });
@@ -661,6 +689,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       startGPSDataCollection(synchronizedStartTime);
       startGyroscopeDataCollection(synchronizedStartTime);
       startAccelerometerDataCollection(synchronizedStartTime);
+      startMagnetometerDataCollection(synchronizedStartTime);
 
       const now = new Date();
       startTimeRef.current = now.toLocaleTimeString('en-US', {
@@ -751,6 +780,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
                     stopGPSDataCollection();
                     stopGyroscopeDataCollection();
                     stopAccelerometerDataCollection();
+                    stopMagnetometerDataCollection();
                   }
                 }
               }
@@ -763,6 +793,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
             stopGPSDataCollection();
             stopGyroscopeDataCollection();
             stopAccelerometerDataCollection();
+            stopMagnetometerDataCollection();
           }
         },
       });
@@ -783,9 +814,10 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         stopGPSDataCollection();
         stopGyroscopeDataCollection();
         stopAccelerometerDataCollection();
+        stopMagnetometerDataCollection();
       }
     }
-      }, [startTimer, startGPSDataCollection, startGyroscopeDataCollection, startAccelerometerDataCollection, resetStats, stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, stopAccelerometerDataCollection, handleVideoSave, findRecordingFile, setRecordingVideoPath, device, format]);
+      }, [startTimer, startGPSDataCollection, startGyroscopeDataCollection, startAccelerometerDataCollection, startMagnetometerDataCollection, resetStats, stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, stopAccelerometerDataCollection, stopMagnetometerDataCollection, handleVideoSave, findRecordingFile, setRecordingVideoPath, device, format]);
 
   const pauseRecording = useCallback(async () => {
     if (!isMountedRef.current || !camera.current) return;
@@ -796,6 +828,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       stopGPSDataCollection();
       stopGyroscopeDataCollection();
       stopAccelerometerDataCollection();
+      stopMagnetometerDataCollection();
       recordingEndTime.current = Date.now();
       const now = new Date();
       endTimeRef.current = now.toLocaleTimeString('en-US', {
@@ -828,9 +861,10 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         stopGPSDataCollection();
         stopGyroscopeDataCollection();
         stopAccelerometerDataCollection();
+        stopMagnetometerDataCollection();
       }
     }
-  }, [stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, stopAccelerometerDataCollection, setRecordingVideoPath]);
+  }, [stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, stopAccelerometerDataCollection, stopMagnetometerDataCollection, setRecordingVideoPath]);
 
   const handleRecordPress = useCallback(() => {
     if (isRecording) {
@@ -861,6 +895,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
               stopGPSDataCollection();
               stopGyroscopeDataCollection();
               stopAccelerometerDataCollection();
+              stopMagnetometerDataCollection();
               setIsRecording(false);
               resetTimer();
               navigation.goBack();
@@ -880,7 +915,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     } else {
       navigation.goBack();
     }
-  }, [isRecording, navigation, stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, stopAccelerometerDataCollection, resetTimer, setRecordingVideoPath]);
+  }, [isRecording, navigation, stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, stopAccelerometerDataCollection, stopMagnetometerDataCollection, resetTimer, setRecordingVideoPath]);
 
   if (!device || !hasCameraPermission || !hasMicrophonePermission) {
     return (
