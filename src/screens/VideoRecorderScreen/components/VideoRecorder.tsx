@@ -17,7 +17,7 @@ import { getResolutionDimensions, RecordingSettings } from '../../../utils/setti
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { useSystemMonitoring, useGyroscope, useLocationTracking, useRecordingTimer } from '../hooks';
+import { useSystemMonitoring, useGyroscope, useAccelerometer, useMagnetometer, useLocationTracking, useRecordingTimer } from '../hooks';
 
 import {
   RecordingBadge,
@@ -46,6 +46,8 @@ type RootStackParamList = {
     videoPath: string;
     gpsFilePath: string;
     gyroscopeFilePath: string;
+    accelerometerFilePath: string;
+    magnetometerFilePath: string;
     cameraSettingsFilePath: string;
     settings: RecordingSettings;
   };
@@ -65,7 +67,8 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
   const [cameraLayout, setCameraLayout] = useState({ width: 0, height: 0 });
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
-  const [isCameraActive, setIsCameraActive] = useState(true);
+  const [isCameraActive, setIsCameraActive] = useState(false);
+  const cameraConfigTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const camera = useRef<Camera>(null);
   const focusFadeAnim = useRef(new Animated.Value(0)).current;
@@ -91,6 +94,8 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     setRecordingVideoPath
   } = useSystemMonitoring(isRecording);
   const { gyroDataRef, startGyroscopeDataCollection, stopGyroscopeDataCollection } = useGyroscope(settings);
+  const { accelDataRef, startAccelerometerDataCollection, stopAccelerometerDataCollection } = useAccelerometer(settings);
+  const { magnetometerDataRef, startMagnetometerDataCollection, stopMagnetometerDataCollection } = useMagnetometer(settings);
   const { gpsDataRef, totalDistanceRef, startGPSDataCollection, stopGPSDataCollection } = useLocationTracking(settings);
   const { recordingTime, pulseAnim, startTimer, stopTimer, resetTimer, formatTime } = useRecordingTimer(isRecording);
 
@@ -121,6 +126,38 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     setSettings(initialSettings);
   }, [initialSettings]);
 
+  // Handle camera configuration changes - temporarily disable camera when props change
+  useEffect(() => {
+    if (!isMountedRef.current) return;
+    
+    // Don't disable camera if we're currently recording
+    if (isRecordingRef.current) {
+      return;
+    }
+    
+    // Temporarily disable camera during configuration changes
+    setIsCameraActive(false);
+    
+    // Clear any existing timeout
+    if (cameraConfigTimeoutRef.current) {
+      clearTimeout(cameraConfigTimeoutRef.current);
+    }
+    
+    // Re-enable camera after a delay to allow configuration to complete
+    cameraConfigTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current && !isRecordingRef.current) {
+        setIsCameraActive(true);
+      }
+    }, 300);
+    
+    return () => {
+      if (cameraConfigTimeoutRef.current) {
+        clearTimeout(cameraConfigTimeoutRef.current);
+        cameraConfigTimeoutRef.current = null;
+      }
+    };
+  }, [device, format, settings.video.resolution, settings.frameRate.fps, settings.camera.hdr, zoom]);
+
   useEffect(() => {
     isMountedRef.current = true;
 
@@ -134,7 +171,16 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
 
     checkPermissions();
 
-    // Handle app state changes (background/foreground)
+    // Delay camera activation to ensure configuration is complete
+    if (cameraConfigTimeoutRef.current) {
+      clearTimeout(cameraConfigTimeoutRef.current);
+    }
+    cameraConfigTimeoutRef.current = setTimeout(() => {
+      if (isMountedRef.current) {
+        setIsCameraActive(true);
+      }
+    }, 300);
+
     const subscription = AppState.addEventListener('change', handleAppStateChange);
 
     return () => {
@@ -143,6 +189,10 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       if (layoutTimeoutRef.current) {
         clearTimeout(layoutTimeoutRef.current);
         layoutTimeoutRef.current = null;
+      }
+      if (cameraConfigTimeoutRef.current) {
+        clearTimeout(cameraConfigTimeoutRef.current);
+        cameraConfigTimeoutRef.current = null;
       }
       Orientation.unlockAllOrientations();
     };
@@ -153,35 +203,27 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     appStateRef.current = nextAppState;
     setAppState(nextAppState);
 
-    // App came to foreground
     if (previousAppState.match(/inactive|background/) && nextAppState === 'active') {
-      console.log('App came to foreground');
+      // Delay camera activation to ensure configuration is complete
+      if (cameraConfigTimeoutRef.current) {
+        clearTimeout(cameraConfigTimeoutRef.current);
+      }
+      cameraConfigTimeoutRef.current = setTimeout(() => {
+        if (isMountedRef.current) {
+          setIsCameraActive(true);
+        }
+      }, 300);
 
-      // Reactivate camera when returning to foreground
-      setIsCameraActive(true);
-
-      // If we were recording before backgrounding, the recording continues
       if (wasRecordingBeforeBackgroundRef.current) {
-        console.log('Recording was active before background, camera reactivated');
-        // The recording continues in background via audio session
-        // Camera preview resumes when isActive=true
       }
 
       wasRecordingBeforeBackgroundRef.current = false;
     }
 
-    // App went to background
     if (previousAppState === 'active' && nextAppState.match(/inactive|background/)) {
-      console.log('App went to background');
-
-      // Remember if we were recording
       if (isRecording) {
         wasRecordingBeforeBackgroundRef.current = true;
-        console.log('Recording will continue in background');
-        // Keep camera active during recording to maintain the recording session
-        // The background audio mode will keep the recording going
       } else {
-        // If not recording, deactivate camera to save resources
         setIsCameraActive(false);
       }
     }
@@ -282,7 +324,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     }
   }, [settings.camera.tapToFocusEnabled, device?.supportsFocus, cameraLayout, focusFadeAnim]);
 
-  const saveGyroscopeData = async (videoFileName: string) => {
+  const saveGyroscopeData = async (videoFileName: string, folderPath: string) => {
     try {
       const gyroFileName = videoFileName.replace('.mp4', '_gyroscope.json');
       const gyroscopeData = {
@@ -294,9 +336,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         timestampFormat: settings.metadata.timestampFormat,
         gyroscopePoints: gyroDataRef.current,
       };
-      const gyroFilePath = Platform.OS === 'ios'
-        ? `${RNFS.DocumentDirectoryPath}/${gyroFileName}`
-        : `${RNFS.DownloadDirectoryPath}/${gyroFileName}`;
+      const gyroFilePath = `${folderPath}/${gyroFileName}`;
       await RNFS.writeFile(gyroFilePath, JSON.stringify(gyroscopeData, null, 2), 'utf8');
       return gyroFileName;
     } catch (error) {
@@ -305,7 +345,49 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     }
   };
 
-  const saveGPSData = async (videoFileName: string) => {
+  const saveAccelerometerData = async (videoFileName: string, folderPath: string) => {
+    try {
+      const accelFileName = videoFileName.replace('.mp4', '_accelerometer.json');
+      const accelerometerData = {
+        recordingStartTime: recordingStartTime.current,
+        recordingEndTime: recordingEndTime.current,
+        totalFrames: accelDataRef.current.length,
+        frameRate: settings.frameRate.fps,
+        videoResolution: settings.video.resolution,
+        timestampFormat: settings.metadata.timestampFormat,
+        accelerometerPoints: accelDataRef.current,
+      };
+      const accelFilePath = `${folderPath}/${accelFileName}`;
+      await RNFS.writeFile(accelFilePath, JSON.stringify(accelerometerData, null, 2), 'utf8');
+      return accelFileName;
+    } catch (error) {
+      console.error('Error saving accelerometer data:', error);
+      return null;
+    }
+  };
+
+  const saveMagnetometerData = async (videoFileName: string, folderPath: string) => {
+    try {
+      const magnetometerFileName = videoFileName.replace('.mp4', '_magnetometer.json');
+      const magnetometerData = {
+        recordingStartTime: recordingStartTime.current,
+        recordingEndTime: recordingEndTime.current,
+        totalFrames: magnetometerDataRef.current.length,
+        frameRate: settings.frameRate.fps,
+        videoResolution: settings.video.resolution,
+        timestampFormat: settings.metadata.timestampFormat,
+        magnetometerPoints: magnetometerDataRef.current,
+      };
+      const magnetometerFilePath = `${folderPath}/${magnetometerFileName}`;
+      await RNFS.writeFile(magnetometerFilePath, JSON.stringify(magnetometerData, null, 2), 'utf8');
+      return magnetometerFileName;
+    } catch (error) {
+      console.error('Error saving magnetometer data:', error);
+      return null;
+    }
+  };
+
+  const saveGPSData = async (videoFileName: string, folderPath: string) => {
     try {
       const gpsFileName = videoFileName.replace('.mp4', '_gps.json');
       const gpsData = {
@@ -317,9 +399,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         timestampFormat: settings.metadata.timestampFormat,
         gpsPoints: gpsDataRef.current,
       };
-      const gpsFilePath = Platform.OS === 'ios'
-        ? `${RNFS.DocumentDirectoryPath}/${gpsFileName}`
-        : `${RNFS.DownloadDirectoryPath}/${gpsFileName}`;
+      const gpsFilePath = `${folderPath}/${gpsFileName}`;
       await RNFS.writeFile(gpsFilePath, JSON.stringify(gpsData, null, 2), 'utf8');
       return gpsFileName;
     } catch (error) {
@@ -328,7 +408,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     }
   };
 
-  const saveCameraSettings = async (videoFileName: string) => {
+  const saveCameraSettings = async (videoFileName: string, folderPath: string) => {
     try {
       const settingsFileName = videoFileName.replace('.mp4', '_camera_settings.json');
       const cameraSettingsData = {
@@ -345,9 +425,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         zoom: zoom,
         lens: `${zoom}x`,
       };
-      const settingsFilePath = Platform.OS === 'ios'
-        ? `${RNFS.DocumentDirectoryPath}/${settingsFileName}`
-        : `${RNFS.DownloadDirectoryPath}/${settingsFileName}`;
+      const settingsFilePath = `${folderPath}/${settingsFileName}`;
       await RNFS.writeFile(settingsFilePath, JSON.stringify(cameraSettingsData, null, 2), 'utf8');
       return settingsFileName;
     } catch (error) {
@@ -372,15 +450,37 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
 
   const handleVideoSave = useCallback(async (videoPath: string) => {
     try {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+      const folderName = `InspectTrack_${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
+      
+      const baseDir = Platform.OS === 'ios'
+        ? RNFS.DocumentDirectoryPath
+        : RNFS.DownloadDirectoryPath;
+      const folderPath = `${baseDir}/${folderName}`;
+      
+      const folderExists = await RNFS.exists(folderPath);
+      if (!folderExists) {
+        await RNFS.mkdir(folderPath);
+        console.log(`✅ Created folder: ${folderPath}`);
+      }
+      
       const timestamp = new Date().getTime();
       const fileName = `video_${timestamp}.mp4`;
-      const destPath = Platform.OS === 'ios'
-        ? `${RNFS.DocumentDirectoryPath}/${fileName}`
-        : `${RNFS.DownloadDirectoryPath}/${fileName}`;
+      const destPath = `${folderPath}/${fileName}`;
       await RNFS.moveFile(videoPath, destPath);
-      const gpsFileName = await saveGPSData(fileName);
-      const gyroscopeFileName = await saveGyroscopeData(fileName);
-      const cameraSettingsFileName = await saveCameraSettings(fileName);
+      console.log(`✅ Video saved to: ${destPath}`);
+      
+      const gpsFileName = await saveGPSData(fileName, folderPath);
+      const gyroscopeFileName = await saveGyroscopeData(fileName, folderPath);
+      const accelerometerFileName = await saveAccelerometerData(fileName, folderPath);
+      const magnetometerFileName = await saveMagnetometerData(fileName, folderPath);
+      const cameraSettingsFileName = await saveCameraSettings(fileName, folderPath);
 
       const avgCPU = cpuStatsRef.current.length > 0
         ? Math.round(cpuStatsRef.current.reduce((a, b) => a + b, 0) / cpuStatsRef.current.length)
@@ -405,21 +505,17 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       const savedDuration = actualDuration;
       const savedDistance = totalDistanceRef.current;
 
-      const gpsFilePath = Platform.OS === 'ios'
-        ? `${RNFS.DocumentDirectoryPath}/${gpsFileName}`
-        : `${RNFS.DownloadDirectoryPath}/${gpsFileName}`;
-
-      const gyroscopeFilePath = Platform.OS === 'ios'
-        ? `${RNFS.DocumentDirectoryPath}/${gyroscopeFileName}`
-        : `${RNFS.DownloadDirectoryPath}/${gyroscopeFileName}`;
-
-      const cameraSettingsFilePath = Platform.OS === 'ios'
-        ? `${RNFS.DocumentDirectoryPath}/${cameraSettingsFileName}`
-        : `${RNFS.DownloadDirectoryPath}/${cameraSettingsFileName}`;
+      const gpsFilePath = `${folderPath}/${gpsFileName}`;
+      const gyroscopeFilePath = `${folderPath}/${gyroscopeFileName}`;
+      const accelerometerFilePath = `${folderPath}/${accelerometerFileName}`;
+      const magnetometerFilePath = `${folderPath}/${magnetometerFileName}`;
+      const cameraSettingsFilePath = `${folderPath}/${cameraSettingsFileName}`;
 
       const videoSaved = await verifyFileSaved(destPath, 'Video');
       const gpsSaved = await verifyFileSaved(gpsFilePath, 'GPS');
       const gyroSaved = await verifyFileSaved(gyroscopeFilePath, 'Gyroscope');
+      const accelSaved = await verifyFileSaved(accelerometerFilePath, 'Accelerometer');
+      const magnetometerSaved = await verifyFileSaved(magnetometerFilePath, 'Magnetometer');
       const cameraSettingsSaved = await verifyFileSaved(cameraSettingsFilePath, 'Camera Settings');
 
       if (isMountedRef.current) {
@@ -427,22 +523,25 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         resetTimer();
 
         const saveLocation = Platform.OS === 'ios' ? 'Files app' : 'Downloads folder';
-        const allSaved = videoSaved && gpsSaved && gyroSaved && cameraSettingsSaved;
+        const allSaved = videoSaved && gpsSaved && gyroSaved && accelSaved && magnetometerSaved && cameraSettingsSaved;
 
         if (allSaved) {
           Alert.alert(
             'Recording Saved',
-            `All files have been saved to ${saveLocation}!\n\n` +
+            `All files have been saved to:\n${folderName}\n\n` +
+            `📁 Location: ${saveLocation}/${folderName}\n\n` +
             `📹 Video\n` +
             `📍 ${gpsDataRef.current.length} GPS points\n` +
             `🔄 ${gyroDataRef.current.length} Gyroscope points\n` +
+            `📊 ${accelDataRef.current.length} Accelerometer points\n` +
+            `🧲 ${magnetometerDataRef.current.length} Magnetometer points\n` +
             `⚙️ Camera settings`,
             [{ text: 'OK' }]
           );
         } else {
           Alert.alert(
             'Partial Save',
-            'Some files may not have been saved correctly. Please check your storage.',
+            `Some files may not have been saved correctly.\nFolder: ${folderName}\nPlease check your storage.`,
             [{ text: 'OK' }]
           );
         }
@@ -461,6 +560,8 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
               videoPath: destPath,
               gpsFilePath: gpsFilePath,
               gyroscopeFilePath: gyroscopeFilePath,
+              accelerometerFilePath: accelerometerFilePath,
+              magnetometerFilePath: magnetometerFilePath,
               cameraSettingsFilePath: cameraSettingsFilePath,
               settings: settings,
             });
@@ -572,7 +673,6 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       return;
     }
     
-    // Verify camera is still valid
     if (!device || !format) {
       Alert.alert('Error', 'Camera device not available. Please try again.');
       return;
@@ -588,6 +688,8 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       startTimer(synchronizedStartTime);
       startGPSDataCollection(synchronizedStartTime);
       startGyroscopeDataCollection(synchronizedStartTime);
+      startAccelerometerDataCollection(synchronizedStartTime);
+      startMagnetometerDataCollection(synchronizedStartTime);
 
       const now = new Date();
       startTimeRef.current = now.toLocaleTimeString('en-US', {
@@ -599,9 +701,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       isRecordingRef.current = true;
 
       findFileIntervalRef.current = setInterval(async () => {
-        console.log('⏰ Interval tick - isRecordingRef:', isRecordingRef.current, 'isMounted:', isMountedRef.current);
         if (!isMountedRef.current || !isRecordingRef.current) {
-          console.log('⏸️ Stopping interval');
           if (findFileIntervalRef.current) {
             clearInterval(findFileIntervalRef.current);
             findFileIntervalRef.current = null;
@@ -610,7 +710,6 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         }
         try {
           const recordingPath = await findRecordingFile();
-          console.log('📁 Search returned:', recordingPath ? 'FILE FOUND' : 'NO FILE');
           if (recordingPath && isMountedRef.current) {
             try {
               const fileInfo = await RNFS.stat(recordingPath);
@@ -627,12 +726,9 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
                 if (currentRecordingPathRef.current !== recordingPath) {
                   currentRecordingPathRef.current = recordingPath;
                   setRecordingVideoPath(recordingPath);
-                  console.log('✅ Found & set recording file:', recordingPath, 'Size:', fileSize, 'bytes');
                 } else {
                   setRecordingVideoPath(recordingPath);
                 }
-              } else {
-                console.log('⏭️ File found but conditions not met:', recordingPath, 'Size:', fileSize, 'isRecent:', isRecent);
               }
             } catch (statError) {
             }
@@ -660,20 +756,15 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
           }
           console.error('Recording error:', error);
 
-          // Check if error is due to app backgrounding/foregrounding
           const errorMessage = String(error?.message || '');
           const isBackgroundRelatedError = errorMessage.toLowerCase().includes('session') ||
                                           errorMessage.toLowerCase().includes('interrupted') ||
                                           errorMessage.toLowerCase().includes('background');
 
-          // Don't show error popup for background-related interruptions
-          // The recording should continue when app returns to foreground
           if (isBackgroundRelatedError && wasRecordingBeforeBackgroundRef.current) {
-            console.log('Background-related recording interruption detected, ignoring...');
             return;
           }
 
-          // Only show error for genuine recording failures
           const displayErrorMessage = 'Failed to record video. Please check camera permissions and try again.';
 
           if (isMountedRef.current) {
@@ -683,12 +774,13 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
               {
                 text: 'OK',
                 onPress: () => {
-                  // Reset state
                   if (isMountedRef.current) {
                     setIsRecording(false);
                     stopTimer();
                     stopGPSDataCollection();
                     stopGyroscopeDataCollection();
+                    stopAccelerometerDataCollection();
+                    stopMagnetometerDataCollection();
                   }
                 }
               }
@@ -700,6 +792,8 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
             stopTimer();
             stopGPSDataCollection();
             stopGyroscopeDataCollection();
+            stopAccelerometerDataCollection();
+            stopMagnetometerDataCollection();
           }
         },
       });
@@ -719,9 +813,11 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         stopTimer();
         stopGPSDataCollection();
         stopGyroscopeDataCollection();
+        stopAccelerometerDataCollection();
+        stopMagnetometerDataCollection();
       }
     }
-      }, [startTimer, startGPSDataCollection, startGyroscopeDataCollection, resetStats, stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, handleVideoSave, findRecordingFile, setRecordingVideoPath, device, format]);
+      }, [startTimer, startGPSDataCollection, startGyroscopeDataCollection, startAccelerometerDataCollection, startMagnetometerDataCollection, resetStats, stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, stopAccelerometerDataCollection, stopMagnetometerDataCollection, handleVideoSave, findRecordingFile, setRecordingVideoPath, device, format]);
 
   const pauseRecording = useCallback(async () => {
     if (!isMountedRef.current || !camera.current) return;
@@ -731,6 +827,8 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       setIsProcessing(true);
       stopGPSDataCollection();
       stopGyroscopeDataCollection();
+      stopAccelerometerDataCollection();
+      stopMagnetometerDataCollection();
       recordingEndTime.current = Date.now();
       const now = new Date();
       endTimeRef.current = now.toLocaleTimeString('en-US', {
@@ -762,9 +860,11 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         setIsProcessing(false);
         stopGPSDataCollection();
         stopGyroscopeDataCollection();
+        stopAccelerometerDataCollection();
+        stopMagnetometerDataCollection();
       }
     }
-  }, [stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, setRecordingVideoPath]);
+  }, [stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, stopAccelerometerDataCollection, stopMagnetometerDataCollection, setRecordingVideoPath]);
 
   const handleRecordPress = useCallback(() => {
     if (isRecording) {
@@ -794,6 +894,8 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
               stopTimer();
               stopGPSDataCollection();
               stopGyroscopeDataCollection();
+              stopAccelerometerDataCollection();
+              stopMagnetometerDataCollection();
               setIsRecording(false);
               resetTimer();
               navigation.goBack();
@@ -813,7 +915,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     } else {
       navigation.goBack();
     }
-  }, [isRecording, navigation, stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, resetTimer, setRecordingVideoPath]);
+  }, [isRecording, navigation, stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, stopAccelerometerDataCollection, stopMagnetometerDataCollection, resetTimer, setRecordingVideoPath]);
 
   if (!device || !hasCameraPermission || !hasMicrophonePermission) {
     return (
@@ -834,7 +936,6 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         onLayout={handleCameraLayout}
       >
         <Camera
-          key={`${settings.video.resolution}-${settings.frameRate.fps}-${settings.camera.hdr}`}
           ref={camera}
           style={styles.camera}
           device={device}
@@ -902,4 +1003,3 @@ const styles = StyleSheet.create({
 });
 
 export default VideoRecorder;
-

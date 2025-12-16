@@ -31,6 +31,8 @@ type RootStackParamList = {
     videoPath: string;
     gpsFilePath: string;
     gyroscopeFilePath: string;
+    accelerometerFilePath: string;
+    magnetometerFilePath: string;
     cameraSettingsFilePath: string;
     settings: RecordingSettings;
   };
@@ -51,14 +53,17 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
     videoPath,
     gpsFilePath,
     gyroscopeFilePath,
+    accelerometerFilePath,
+    magnetometerFilePath,
     cameraSettingsFilePath,
     settings,
   } = route.params;
 
   const [gpsData, setGpsData] = useState<any>(null);
   const [gyroscopeData, setGyroscopeData] = useState<any>(null);
+  const [accelerometerData, setAccelerometerData] = useState<any>(null);
+  const [magnetometerData, setMagnetometerData] = useState<any>(null);
 
-  // Lock orientation to portrait mode
   useEffect(() => {
     Orientation.lockToPortrait();
     
@@ -70,6 +75,8 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
   useEffect(() => {
     loadGPSData();
     loadGyroscopeData();
+    loadAccelerometerData();
+    loadMagnetometerData();
   }, []);
 
   const loadGPSData = async () => {
@@ -104,6 +111,38 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
     }
   };
 
+  const loadAccelerometerData = async () => {
+    try {
+      if (accelerometerFilePath) {
+        const fileExists = await RNFS.exists(accelerometerFilePath);
+        if (fileExists) {
+          const accelContent = await RNFS.readFile(accelerometerFilePath, 'utf8');
+          const parsedAccelData = JSON.parse(accelContent);
+          setAccelerometerData(parsedAccelData);
+          console.log('Accelerometer data loaded successfully');
+        }
+      }
+    } catch (error) {
+      console.error('Error loading Accelerometer data:', error);
+    }
+  };
+
+  const loadMagnetometerData = async () => {
+    try {
+      if (magnetometerFilePath) {
+        const fileExists = await RNFS.exists(magnetometerFilePath);
+        if (fileExists) {
+          const magnetometerContent = await RNFS.readFile(magnetometerFilePath, 'utf8');
+          const parsedMagnetometerData = JSON.parse(magnetometerContent);
+          setMagnetometerData(parsedMagnetometerData);
+          console.log('Magnetometer data loaded successfully');
+        }
+      }
+    } catch (error) {
+      console.error('Error loading Magnetometer data:', error);
+    }
+  };
+
   const formatDuration = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
     const mins = Math.floor((seconds % 3600) / 60);
@@ -117,7 +156,6 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
     try {
       const date = new Date(timestamp);
       
-      // Use Intl.DateTimeFormat for proper UTC conversion
       const formatter = new Intl.DateTimeFormat('en-US', {
         timeZone: 'UTC',
         year: 'numeric',
@@ -136,7 +174,6 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
         partValues[type] = value;
       });
       
-      // Format: MM/DD/YYYY, HH:MM:SS (UTC)
       return `${partValues.hour}:${partValues.minute}:${partValues.second}`;
     } catch (error) {
       console.error('Error formatting UTC timestamp:', error);
@@ -332,4 +369,3 @@ const styles = StyleSheet.create({
 });
 
 export default SummaryScreen;
-
