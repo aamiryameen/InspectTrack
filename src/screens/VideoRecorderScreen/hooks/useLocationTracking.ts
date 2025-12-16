@@ -94,14 +94,12 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
         setLocation({ latitude, longitude, address });
       },
       (error) => {
-        // Check for permission denied (code 1 or PERMISSION_DENIED constant)
         if (error.code === 1 || error.code === error.PERMISSION_DENIED) {
           permissionDeniedRef.current = true;
           if (locationWatchId.current !== null) {
             Geolocation.clearWatch(locationWatchId.current);
             locationWatchId.current = null;
           }
-          console.warn('Location permission denied. Location tracking disabled.');
         } else {
           console.error('Location error:', error);
         }
@@ -119,14 +117,12 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
     if (!settings.metadata.gpsSync) return;
     
     if (permissionDeniedRef.current) {
-      console.warn('GPS collection skipped: Location permission denied');
       return;
     }
 
     const samplingInterval = settings.gps.updateInterval * 1000;
     const enableHighAccuracy = settings.gps.accuracy === 'high';
 
-    // Capture first GPS point immediately at start time
     Geolocation.getCurrentPosition(
       (position) => {
         const initialTimestamp = recordingStartTime;
@@ -139,7 +135,6 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
           accuracy,
         });
 
-        // Then continue collecting at intervals
         gpsCollectionInterval.current = setInterval(() => {
           if (permissionDeniedRef.current) {
             if (gpsCollectionInterval.current) {
@@ -173,14 +168,12 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
               });
             },
             (error) => {
-              // Check for permission denied (code 1 or PERMISSION_DENIED constant)
               if (error.code === 1 || error.code === error.PERMISSION_DENIED) {
                 permissionDeniedRef.current = true;
                 if (gpsCollectionInterval.current) {
                   clearInterval(gpsCollectionInterval.current);
                   gpsCollectionInterval.current = null;
                 }
-                console.warn('GPS collection stopped: Location permission denied');
               } else {
                 console.error('GPS collection error:', error);
               }
@@ -190,8 +183,6 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
         }, samplingInterval);
       },
       (error) => {
-        console.error('Initial GPS collection error:', error);
-        // Still start the interval even if initial capture fails
         gpsCollectionInterval.current = setInterval(() => {
           if (permissionDeniedRef.current) {
             if (gpsCollectionInterval.current) {
@@ -231,7 +222,6 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
                   clearInterval(gpsCollectionInterval.current);
                   gpsCollectionInterval.current = null;
                 }
-                console.warn('GPS collection stopped: Location permission denied');
               } else {
                 console.error('GPS collection error:', error);
               }
@@ -270,4 +260,3 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
     stopGPSDataCollection,
   };
 };
-

@@ -32,6 +32,7 @@ type RootStackParamList = {
     gpsFilePath: string;
     gyroscopeFilePath: string;
     accelerometerFilePath: string;
+    magnetometerFilePath: string;
     cameraSettingsFilePath: string;
     settings: RecordingSettings;
   };
@@ -53,6 +54,7 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
     gpsFilePath,
     gyroscopeFilePath,
     accelerometerFilePath,
+    magnetometerFilePath,
     cameraSettingsFilePath,
     settings,
   } = route.params;
@@ -60,8 +62,8 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
   const [gpsData, setGpsData] = useState<any>(null);
   const [gyroscopeData, setGyroscopeData] = useState<any>(null);
   const [accelerometerData, setAccelerometerData] = useState<any>(null);
+  const [magnetometerData, setMagnetometerData] = useState<any>(null);
 
-  // Lock orientation to portrait mode
   useEffect(() => {
     Orientation.lockToPortrait();
     
@@ -74,6 +76,7 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
     loadGPSData();
     loadGyroscopeData();
     loadAccelerometerData();
+    loadMagnetometerData();
   }, []);
 
   const loadGPSData = async () => {
@@ -121,6 +124,22 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
       }
     } catch (error) {
       console.error('Error loading Accelerometer data:', error);
+    }
+  };
+
+  const loadMagnetometerData = async () => {
+    try {
+      if (magnetometerFilePath) {
+        const fileExists = await RNFS.exists(magnetometerFilePath);
+        if (fileExists) {
+          const magnetometerContent = await RNFS.readFile(magnetometerFilePath, 'utf8');
+          const parsedMagnetometerData = JSON.parse(magnetometerContent);
+          setMagnetometerData(parsedMagnetometerData);
+          console.log('Magnetometer data loaded successfully');
+        }
+      }
+    } catch (error) {
+      console.error('Error loading Magnetometer data:', error);
     }
   };
 
@@ -350,4 +369,3 @@ const styles = StyleSheet.create({
 });
 
 export default SummaryScreen;
-
