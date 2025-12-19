@@ -64,7 +64,7 @@ export const useGyroscope = (settings: RecordingSettings): UseGyroscopeReturn =>
     gyroDataRef.current = [];
     const recordingStartTime = startTimestamp || Date.now();
     recordingStartTimeRef.current = recordingStartTime;
-    const samplingInterval = settings.gps.updateInterval * 1000;
+    const samplingInterval = 500; // 500ms interval during video recording
 
     const initialTimestamp = recordingStartTime;
     gyroDataRef.current.push({
@@ -84,7 +84,7 @@ export const useGyroscope = (settings: RecordingSettings): UseGyroscopeReturn =>
         z: previousGyroData.current.z,
       });
     }, samplingInterval);
-  }, [settings.gps.updateInterval]);
+  }, []);
 
   const stopGyroscopeDataCollection = useCallback(() => {
     if (gyroCollectionInterval.current) {

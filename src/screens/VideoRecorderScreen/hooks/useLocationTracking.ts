@@ -120,7 +120,7 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
       return;
     }
 
-    const samplingInterval = settings.gps.updateInterval * 1000;
+    const samplingInterval = 500; // 500ms interval during video recording
     const enableHighAccuracy = settings.gps.accuracy === 'high';
 
     Geolocation.getCurrentPosition(
@@ -232,7 +232,7 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
       },
       { enableHighAccuracy, timeout: 20000, maximumAge: 0 }
     );
-  }, [settings.gps.updateInterval, settings.gps.accuracy, settings.metadata.gpsSync]);
+  }, [settings.gps.accuracy, settings.metadata.gpsSync]);
 
   const stopGPSDataCollection = useCallback(() => {
     if (gpsCollectionInterval.current) {

@@ -63,7 +63,7 @@ export const useAccelerometer = (settings: RecordingSettings): UseAccelerometerR
     accelDataRef.current = [];
     const recordingStartTime = startTimestamp || Date.now();
     recordingStartTimeRef.current = recordingStartTime;
-    const samplingInterval = settings.gps.updateInterval * 1000;
+    const samplingInterval = 500; // 500ms interval during video recording
 
     const initialTimestamp = recordingStartTime;
     accelDataRef.current.push({
@@ -83,7 +83,7 @@ export const useAccelerometer = (settings: RecordingSettings): UseAccelerometerR
         z: previousAccelData.current.z,
       });
     }, samplingInterval);
-  }, [settings.gps.updateInterval]);
+  }, []);
 
   const stopAccelerometerDataCollection = useCallback(() => {
     if (accelCollectionInterval.current) {

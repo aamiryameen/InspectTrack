@@ -63,7 +63,7 @@ export const useMagnetometer = (settings: RecordingSettings): UseMagnetometerRet
     magnetometerDataRef.current = [];
     const recordingStartTime = startTimestamp || Date.now();
     recordingStartTimeRef.current = recordingStartTime;
-    const samplingInterval = settings.gps.updateInterval * 1000;
+    const samplingInterval = 500; // 500ms interval during video recording
 
     const initialTimestamp = recordingStartTime;
     magnetometerDataRef.current.push({
@@ -83,7 +83,7 @@ export const useMagnetometer = (settings: RecordingSettings): UseMagnetometerRet
         z: previousMagnetometerData.current.z,
       });
     }, samplingInterval);
-  }, [settings.gps.updateInterval]);
+  }, []);
 
   const stopMagnetometerDataCollection = useCallback(() => {
     if (magnetometerCollectionInterval.current) {
