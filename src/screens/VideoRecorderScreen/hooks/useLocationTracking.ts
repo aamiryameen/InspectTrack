@@ -14,6 +14,8 @@ interface GPSDataPoint {
   latitude: number;
   longitude: number;
   accuracy?: number;
+  speed?: number;
+  heading?: number;
 }
 
 interface UseLocationTrackingReturn {
@@ -52,6 +54,16 @@ const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: numbe
     Math.sin(dLon/2) * Math.sin(dLon/2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
   return R * c;
+};
+
+const calculateHeading = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  const toRadians = (degree: number) => (degree * Math.PI) / 180;
+  const y = Math.sin(toRadians(lon2 - lon1)) * Math.cos(toRadians(lat2));
+  const x =
+    Math.cos(toRadians(lat1)) * Math.sin(toRadians(lat2)) -
+    Math.sin(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.cos(toRadians(lon2 - lon1));
+  const bearing = (Math.atan2(y, x) * 180) / Math.PI;
+  return (bearing + 360) % 360; // Normalize bearing to 0-360 degrees
 };
 
 export const useLocationTracking = (settings: RecordingSettings): UseLocationTrackingReturn => {
@@ -126,13 +138,15 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
     Geolocation.getCurrentPosition(
       (position) => {
         const initialTimestamp = recordingStartTime;
-        const { latitude, longitude, accuracy } = position.coords;
+        const { latitude, longitude, accuracy, speed, heading } = position.coords;
 
         gpsDataRef.current.push({
           timestamp: initialTimestamp,
           latitude,
           longitude,
           accuracy,
+          speed: speed !== undefined && speed >= 0 ? speed : undefined,
+          heading: heading !== undefined && heading >= 0 ? heading : undefined,
         });
 
         gpsCollectionInterval.current = setInterval(() => {
@@ -147,8 +161,9 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
           Geolocation.getCurrentPosition(
             (position) => {
               const utcTimestamp = getUTCTimestamp();
-              const { latitude, longitude, accuracy } = position.coords;
+              const { latitude, longitude, accuracy, speed, heading } = position.coords;
 
+              let calculatedHeading: number | undefined = undefined;
               if (gpsDataRef.current.length > 0) {
                 const prevPoint = gpsDataRef.current[gpsDataRef.current.length - 1];
                 const distance = calculateDistance(
@@ -158,6 +173,16 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
                   longitude
                 );
                 totalDistanceRef.current += distance;
+                
+                // Calculate heading from movement if GPS heading is unavailable
+                if (heading === undefined || heading < 0) {
+                  calculatedHeading = calculateHeading(
+                    prevPoint.latitude,
+                    prevPoint.longitude,
+                    latitude,
+                    longitude
+                  );
+                }
               }
 
               gpsDataRef.current.push({
@@ -165,6 +190,8 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
                 latitude,
                 longitude,
                 accuracy,
+                speed: speed !== undefined && speed >= 0 ? speed : undefined,
+                heading: (heading !== undefined && heading >= 0) ? heading : calculatedHeading,
               });
             },
             (error) => {
@@ -195,8 +222,9 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
           Geolocation.getCurrentPosition(
             (position) => {
               const utcTimestamp = getUTCTimestamp();
-              const { latitude, longitude, accuracy } = position.coords;
+              const { latitude, longitude, accuracy, speed, heading } = position.coords;
 
+              let calculatedHeading: number | undefined = undefined;
               if (gpsDataRef.current.length > 0) {
                 const prevPoint = gpsDataRef.current[gpsDataRef.current.length - 1];
                 const distance = calculateDistance(
@@ -206,6 +234,16 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
                   longitude
                 );
                 totalDistanceRef.current += distance;
+                
+                // Calculate heading from movement if GPS heading is unavailable
+                if (heading === undefined || heading < 0) {
+                  calculatedHeading = calculateHeading(
+                    prevPoint.latitude,
+                    prevPoint.longitude,
+                    latitude,
+                    longitude
+                  );
+                }
               }
 
               gpsDataRef.current.push({
@@ -213,6 +251,8 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
                 latitude,
                 longitude,
                 accuracy,
+                speed: speed !== undefined && speed >= 0 ? speed : undefined,
+                heading: (heading !== undefined && heading >= 0) ? heading : calculatedHeading,
               });
             },
             (error) => {

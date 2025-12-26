@@ -324,20 +324,94 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     }
   }, [settings.camera.tapToFocusEnabled, device?.supportsFocus, cameraLayout, focusFadeAnim]);
 
-  const saveGyroscopeData = async (videoFileName: string, folderPath: string) => {
+  const formatTimestamp = (timestamp: number): string => {
+    const date = new Date(timestamp);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${year}${month}${day}_${hours}${minutes}${seconds}`;
+  };
+
+  const ensureDirectory = async (dirPath: string) => {
+    const exists = await RNFS.exists(dirPath);
+    if (!exists) {
+      await RNFS.mkdir(dirPath);
+    }
+  };
+
+  const getLensState = (currentZoom: number) => {
+    if (currentZoom >= 2.5) {
+      return { lens_1x: 'Off', lens_2x: 'Off', lens_3x: 'On' };
+    }
+    if (currentZoom >= 1.5) {
+      return { lens_1x: 'Off', lens_2x: 'On', lens_3x: 'Off' };
+    }
+    return { lens_1x: 'On', lens_2x: 'Off', lens_3x: 'Off' };
+  };
+
+  const saveSystemConfig = async (configFolderPath: string) => {
+    const { lens_1x, lens_2x, lens_3x } = getLensState(zoom);
+    const systemConfig = {
+      recordingStartTime: recordingStartTime.current,
+      recordingEndTime: recordingEndTime.current,
+      lens_1x,
+      lens_2x,
+      lens_3x,
+      GPS: 'On',
+      Gyroscope: 'On',
+      Accelerometer: 'On',
+      Magnometer: 'On',
+    };
+    const systemConfigPath = `${configFolderPath}/System_config.json`;
+    await RNFS.writeFile(systemConfigPath, JSON.stringify(systemConfig, null, 2), 'utf8');
+    return systemConfigPath;
+  };
+
+  const saveSensorConfig = async (configFolderPath: string) => {
+    const gpsHz = settings.gps.updateInterval > 0 ? (1 / settings.gps.updateInterval) : 0;
+    const sensorConfig = {
+      fps: settings.frameRate.fps,
+      resolution: settings.video.resolution,
+      exposure: settings.camera.exposure,
+      exposureMin: settings.camera.exposureMin,
+      exposureMax: settings.camera.exposureMax,
+      iso: settings.camera.iso,
+      hdr: settings.camera.hdr,
+      tapToFocusEnabled: settings.camera.tapToFocusEnabled,
+      Zoom: zoom,
+      Gps: `${gpsHz || 0}Hz`,
+      Accelerometer: '100Hz',
+      Gyroscope: '100Hz',
+      Magnometer: '100Hz',
+    };
+    const sensorConfigPath = `${configFolderPath}/Sensor_config.json`;
+    await RNFS.writeFile(sensorConfigPath, JSON.stringify(sensorConfig, null, 2), 'utf8');
+    return sensorConfigPath;
+  };
+
+  const saveSessionInfo = async (configFolderPath: string) => {
+    const sessionInfo = {
+      StartingTime: formatTimestamp(recordingStartTime.current || Date.now()),
+      EndingTime: formatTimestamp(recordingEndTime.current || Date.now()),
+      Status: 'Valid',
+    };
+    const sessionInfoPath = `${configFolderPath}/Session_info.json`;
+    await RNFS.writeFile(sessionInfoPath, JSON.stringify(sessionInfo, null, 2), 'utf8');
+    return sessionInfoPath;
+  };
+
+  const saveGyroscopeData = async (_videoFileName: string, folderPath: string) => {
     try {
-      const gyroFileName = videoFileName.replace('.mp4', '_gyroscope.json');
-      const gyroscopeData = {
-        recordingStartTime: recordingStartTime.current,
-        recordingEndTime: recordingEndTime.current,
-        totalFrames: gyroDataRef.current.length,
-        frameRate: settings.frameRate.fps,
-        videoResolution: settings.video.resolution,
-        timestampFormat: settings.metadata.timestampFormat,
-        gyroscopePoints: gyroDataRef.current,
-      };
+      const gyroFileName = 'gyroscope.csv';
       const gyroFilePath = `${folderPath}/${gyroFileName}`;
-      await RNFS.writeFile(gyroFilePath, JSON.stringify(gyroscopeData, null, 2), 'utf8');
+      const header = 'timestamp,x,y,z\n';
+      const rows = gyroDataRef.current
+        .map(p => `${p.timestamp},${p.x},${p.y},${p.z}`)
+        .join('\n');
+      await RNFS.writeFile(gyroFilePath, header + rows, 'utf8');
       return gyroFileName;
     } catch (error) {
       console.error('Error saving gyroscope data:', error);
@@ -345,20 +419,15 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     }
   };
 
-  const saveAccelerometerData = async (videoFileName: string, folderPath: string) => {
+  const saveAccelerometerData = async (_videoFileName: string, folderPath: string) => {
     try {
-      const accelFileName = videoFileName.replace('.mp4', '_accelerometer.json');
-      const accelerometerData = {
-        recordingStartTime: recordingStartTime.current,
-        recordingEndTime: recordingEndTime.current,
-        totalFrames: accelDataRef.current.length,
-        frameRate: settings.frameRate.fps,
-        videoResolution: settings.video.resolution,
-        timestampFormat: settings.metadata.timestampFormat,
-        accelerometerPoints: accelDataRef.current,
-      };
+      const accelFileName = 'accelerometer.csv';
       const accelFilePath = `${folderPath}/${accelFileName}`;
-      await RNFS.writeFile(accelFilePath, JSON.stringify(accelerometerData, null, 2), 'utf8');
+      const header = 'timestamp,x,y,z\n';
+      const rows = accelDataRef.current
+        .map(p => `${p.timestamp},${p.x},${p.y},${p.z}`)
+        .join('\n');
+      await RNFS.writeFile(accelFilePath, header + rows, 'utf8');
       return accelFileName;
     } catch (error) {
       console.error('Error saving accelerometer data:', error);
@@ -366,20 +435,15 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     }
   };
 
-  const saveMagnetometerData = async (videoFileName: string, folderPath: string) => {
+  const saveMagnetometerData = async (_videoFileName: string, folderPath: string) => {
     try {
-      const magnetometerFileName = videoFileName.replace('.mp4', '_magnetometer.json');
-      const magnetometerData = {
-        recordingStartTime: recordingStartTime.current,
-        recordingEndTime: recordingEndTime.current,
-        totalFrames: magnetometerDataRef.current.length,
-        frameRate: settings.frameRate.fps,
-        videoResolution: settings.video.resolution,
-        timestampFormat: settings.metadata.timestampFormat,
-        magnetometerPoints: magnetometerDataRef.current,
-      };
+      const magnetometerFileName = 'magnometer.csv';
       const magnetometerFilePath = `${folderPath}/${magnetometerFileName}`;
-      await RNFS.writeFile(magnetometerFilePath, JSON.stringify(magnetometerData, null, 2), 'utf8');
+      const header = 'timestamp,x,y,z\n';
+      const rows = magnetometerDataRef.current
+        .map(p => `${p.timestamp},${p.x},${p.y},${p.z}`)
+        .join('\n');
+      await RNFS.writeFile(magnetometerFilePath, header + rows, 'utf8');
       return magnetometerFileName;
     } catch (error) {
       console.error('Error saving magnetometer data:', error);
@@ -387,20 +451,16 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     }
   };
 
-  const saveGPSData = async (videoFileName: string, folderPath: string) => {
+  const saveGPSData = async (_videoFileName: string, folderPath: string) => {
     try {
-      const gpsFileName = videoFileName.replace('.mp4', '_gps.json');
-      const gpsData = {
-        recordingStartTime: recordingStartTime.current,
-        recordingEndTime: recordingEndTime.current,
-        totalFrames: gpsDataRef.current.length,
-        frameRate: settings.frameRate.fps,
-        videoResolution: settings.video.resolution,
-        timestampFormat: settings.metadata.timestampFormat,
-        gpsPoints: gpsDataRef.current,
-      };
+      const gpsFileName = 'gps.csv';
       const gpsFilePath = `${folderPath}/${gpsFileName}`;
-      await RNFS.writeFile(gpsFilePath, JSON.stringify(gpsData, null, 2), 'utf8');
+      const header = 'timestamp,latitude,longitude,speed,heading\n';
+      const gpsCsvRows = gpsDataRef.current
+        // @ts-ignore: gpsDataRef points include latitude/longitude/speed/heading
+        .map(p => `${p.timestamp},${p.latitude},${p.longitude},${p.speed ?? ''},${p.heading ?? ''}`)
+        .join('\n');
+      await RNFS.writeFile(gpsFilePath, header + gpsCsvRows, 'utf8');
       return gpsFileName;
     } catch (error) {
       console.error('Error saving GPS data:', error);
@@ -450,37 +510,35 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
 
   const handleVideoSave = useCallback(async (videoPath: string) => {
     try {
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const day = String(now.getDate()).padStart(2, '0');
-      const hours = String(now.getHours()).padStart(2, '0');
-      const minutes = String(now.getMinutes()).padStart(2, '0');
-      const seconds = String(now.getSeconds()).padStart(2, '0');
-      const folderName = `InspectTrack_${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
-      
+      const sessionStartTime = recordingStartTime.current || Date.now();
+
       const baseDir = Platform.OS === 'ios'
         ? RNFS.DocumentDirectoryPath
         : RNFS.DownloadDirectoryPath;
-      const folderPath = `${baseDir}/${folderName}`;
-      
-      const folderExists = await RNFS.exists(folderPath);
-      if (!folderExists) {
-        await RNFS.mkdir(folderPath);
-        console.log(`✅ Created folder: ${folderPath}`);
-      }
-      
-      const timestamp = new Date().getTime();
-      const fileName = `video_${timestamp}.mp4`;
-      const destPath = `${folderPath}/${fileName}`;
+
+      // Use app container (InspectTrack) as the single parent folder
+      const sessionFolderName = `Session_${formatTimestamp(sessionStartTime)}`;
+      const sessionFolderPath = `${baseDir}/${sessionFolderName}`;
+      const configFolderPath = `${sessionFolderPath}/Config`;
+      const insFolderPath = `${sessionFolderPath}/ins`;
+
+      await ensureDirectory(sessionFolderPath);
+      await ensureDirectory(configFolderPath);
+      await ensureDirectory(insFolderPath);
+
+      const fileName = `video_${sessionStartTime}.mp4`;
+      const destPath = `${sessionFolderPath}/${fileName}`;
       await RNFS.moveFile(videoPath, destPath);
       console.log(`✅ Video saved to: ${destPath}`);
-      
-      const gpsFileName = await saveGPSData(fileName, folderPath);
-      const gyroscopeFileName = await saveGyroscopeData(fileName, folderPath);
-      const accelerometerFileName = await saveAccelerometerData(fileName, folderPath);
-      const magnetometerFileName = await saveMagnetometerData(fileName, folderPath);
-      const cameraSettingsFileName = await saveCameraSettings(fileName, folderPath);
+
+      const gpsFileName = await saveGPSData(fileName, insFolderPath);
+      const gyroscopeFileName = await saveGyroscopeData(fileName, insFolderPath);
+      const accelerometerFileName = await saveAccelerometerData(fileName, insFolderPath);
+      const magnetometerFileName = await saveMagnetometerData(fileName, insFolderPath);
+      const systemConfigPath = await saveSystemConfig(configFolderPath);
+      const sensorConfigPath = await saveSensorConfig(configFolderPath);
+      const sessionInfoPath = await saveSessionInfo(configFolderPath);
+      const folderName = sessionFolderName;
 
       const avgCPU = cpuStatsRef.current.length > 0
         ? Math.round(cpuStatsRef.current.reduce((a, b) => a + b, 0) / cpuStatsRef.current.length)
@@ -505,25 +563,27 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       const savedDuration = actualDuration;
       const savedDistance = totalDistanceRef.current;
 
-      const gpsFilePath = `${folderPath}/${gpsFileName}`;
-      const gyroscopeFilePath = `${folderPath}/${gyroscopeFileName}`;
-      const accelerometerFilePath = `${folderPath}/${accelerometerFileName}`;
-      const magnetometerFilePath = `${folderPath}/${magnetometerFileName}`;
-      const cameraSettingsFilePath = `${folderPath}/${cameraSettingsFileName}`;
+      const gpsFilePath = gpsFileName ? `${insFolderPath}/${gpsFileName}` : '';
+      const gyroscopeFilePath = gyroscopeFileName ? `${insFolderPath}/${gyroscopeFileName}` : '';
+      const accelerometerFilePath = accelerometerFileName ? `${insFolderPath}/${accelerometerFileName}` : '';
+      const magnetometerFilePath = magnetometerFileName ? `${insFolderPath}/${magnetometerFileName}` : '';
+      const cameraSettingsFilePath = sensorConfigPath;
 
       const videoSaved = await verifyFileSaved(destPath, 'Video');
-      const gpsSaved = await verifyFileSaved(gpsFilePath, 'GPS');
-      const gyroSaved = await verifyFileSaved(gyroscopeFilePath, 'Gyroscope');
-      const accelSaved = await verifyFileSaved(accelerometerFilePath, 'Accelerometer');
-      const magnetometerSaved = await verifyFileSaved(magnetometerFilePath, 'Magnetometer');
-      const cameraSettingsSaved = await verifyFileSaved(cameraSettingsFilePath, 'Camera Settings');
+      const gpsSaved = gpsFilePath ? await verifyFileSaved(gpsFilePath, 'GPS') : false;
+      const gyroSaved = gyroscopeFilePath ? await verifyFileSaved(gyroscopeFilePath, 'Gyroscope') : false;
+      const accelSaved = accelerometerFilePath ? await verifyFileSaved(accelerometerFilePath, 'Accelerometer') : false;
+      const magnetometerSaved = magnetometerFilePath ? await verifyFileSaved(magnetometerFilePath, 'Magnetometer') : false;
+      const systemConfigSaved = await verifyFileSaved(systemConfigPath, 'System Config');
+      const sensorConfigSaved = await verifyFileSaved(sensorConfigPath, 'Sensor Config');
+      const sessionInfoSaved = await verifyFileSaved(sessionInfoPath, 'Session Info');
 
       if (isMountedRef.current) {
         setIsProcessing(false);
         resetTimer();
 
         const saveLocation = Platform.OS === 'ios' ? 'Files app' : 'Downloads folder';
-        const allSaved = videoSaved && gpsSaved && gyroSaved && accelSaved && magnetometerSaved && cameraSettingsSaved;
+        const allSaved = videoSaved && gpsSaved && gyroSaved && accelSaved && magnetometerSaved && systemConfigSaved && sensorConfigSaved && sessionInfoSaved;
 
         if (allSaved) {
           Alert.alert(
