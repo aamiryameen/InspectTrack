@@ -6,14 +6,19 @@ interface UseRecordingTimerReturn {
   pulseAnim: Animated.Value;
   startTimer: (startTimestamp?: number) => void;
   stopTimer: () => void;
+  pauseTimer: () => void;
+  resumeTimer: () => void;
   resetTimer: () => void;
   formatTime: (seconds: number) => string;
 }
 
-export const useRecordingTimer = (isRecording: boolean): UseRecordingTimerReturn => {
+export const useRecordingTimer = (isRecording: boolean, isPaused?: boolean): UseRecordingTimerReturn => {
   const [recordingTime, setRecordingTime] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimestampRef = useRef<number | null>(null);
+  const pausedTimeRef = useRef<number>(0);
+  const totalPausedDurationRef = useRef<number>(0);
+  const pauseStartTimeRef = useRef<number | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   const formatTime = useCallback((seconds: number) => {
@@ -25,6 +30,9 @@ export const useRecordingTimer = (isRecording: boolean): UseRecordingTimerReturn
   const startTimer = useCallback((startTimestamp?: number) => {
     const startTime = startTimestamp || Date.now();
     startTimestampRef.current = startTime;
+    pausedTimeRef.current = 0;
+    totalPausedDurationRef.current = 0;
+    pauseStartTimeRef.current = null;
 
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -32,7 +40,7 @@ export const useRecordingTimer = (isRecording: boolean): UseRecordingTimerReturn
 
     const updateTime = () => {
       if (startTimestampRef.current) {
-        const elapsed = Math.floor((Date.now() - startTimestampRef.current) / 1000);
+        const elapsed = Math.floor((Date.now() - startTimestampRef.current - totalPausedDurationRef.current) / 1000);
         setRecordingTime(elapsed);
       }
     };
@@ -44,21 +52,57 @@ export const useRecordingTimer = (isRecording: boolean): UseRecordingTimerReturn
     setTimeout(updateTime, 10);
   }, []);
 
+  const pauseTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    if (pauseStartTimeRef.current === null) {
+      pauseStartTimeRef.current = Date.now();
+    }
+  }, []);
+
+  const resumeTimer = useCallback(() => {
+    if (pauseStartTimeRef.current !== null && startTimestampRef.current !== null) {
+      const pauseDuration = Date.now() - pauseStartTimeRef.current;
+      totalPausedDurationRef.current += pauseDuration;
+      pauseStartTimeRef.current = null;
+    }
+
+    if (startTimestampRef.current && !timerRef.current) {
+      const updateTime = () => {
+        if (startTimestampRef.current) {
+          const elapsed = Math.floor((Date.now() - startTimestampRef.current - totalPausedDurationRef.current) / 1000);
+          setRecordingTime(elapsed);
+        }
+      };
+
+      timerRef.current = setInterval(updateTime, 100);
+      setTimeout(updateTime, 10);
+    }
+  }, []);
+
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
     startTimestampRef.current = null;
+    pausedTimeRef.current = 0;
+    totalPausedDurationRef.current = 0;
+    pauseStartTimeRef.current = null;
   }, []);
 
   const resetTimer = useCallback(() => {
     setRecordingTime(0);
     startTimestampRef.current = null;
+    pausedTimeRef.current = 0;
+    totalPausedDurationRef.current = 0;
+    pauseStartTimeRef.current = null;
   }, []);
 
   useEffect(() => {
-    if (isRecording) {
+    if (isRecording && !isPaused) {
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
@@ -76,7 +120,7 @@ export const useRecordingTimer = (isRecording: boolean): UseRecordingTimerReturn
     } else {
       pulseAnim.setValue(1);
     }
-  }, [isRecording, pulseAnim]);
+  }, [isRecording, isPaused, pulseAnim]);
 
   useEffect(() => {
     return () => {
@@ -91,6 +135,8 @@ export const useRecordingTimer = (isRecording: boolean): UseRecordingTimerReturn
     pulseAnim,
     startTimer,
     stopTimer,
+    pauseTimer,
+    resumeTimer,
     resetTimer,
     formatTime,
   };

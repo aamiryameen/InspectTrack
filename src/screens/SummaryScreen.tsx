@@ -85,9 +85,20 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
         const fileExists = await RNFS.exists(gpsFilePath);
         if (fileExists) {
           const gpsContent = await RNFS.readFile(gpsFilePath, 'utf8');
-          const parsedGPSData = JSON.parse(gpsContent);
-          setGpsData(parsedGPSData);
-          console.log('GPS data loaded successfully');
+          const lines = gpsContent.split('\n').filter(l => l.trim().length > 0);
+          if (lines.length > 1) {
+            // Skip header
+            const dataLines = lines.slice(1);
+            const first = dataLines[0].split(',');
+            const last = dataLines[dataLines.length - 1].split(',');
+
+            // Convert UTC seconds (with decimal microseconds) back to milliseconds for Date constructor
+            const recordingStartTime = Number(first[0]) * 1000;
+            const recordingEndTime = Number(last[0]) * 1000;
+
+            setGpsData({ recordingStartTime, recordingEndTime });
+            console.log('GPS CSV data loaded successfully');
+          }
         }
       }
     } catch (error) {
