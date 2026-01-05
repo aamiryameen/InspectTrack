@@ -24,8 +24,9 @@ export const useGyroscope = (settings: RecordingSettings): UseGyroscopeReturn =>
   const gyroSubscription = useRef<any>(null);
   const previousGyroData = useRef<GyroData>({ x: 0, y: 0, z: 0 });
   const gyroDataRef = useRef<GyroDataPoint[]>([]);
-  const gyroCollectionInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isRecordingRef = useRef<boolean>(false);
   const recordingStartTimeRef = useRef<number | null>(null);
+  const lastRecordedDataRef = useRef<GyroData>({ x: 0, y: 0, z: 0 });
 
   const getUTCTimestamp = (): number => {
     try {
@@ -34,6 +35,16 @@ export const useGyroscope = (settings: RecordingSettings): UseGyroscopeReturn =>
       console.error('Error getting UTC timestamp:', error);
       return Date.now();
     }
+  };
+
+  // Threshold to detect significant changes (in rad/s for gyroscope)
+  const changeThreshold = 0.01;
+
+  const hasValueChanged = (current: GyroData, last: GyroData): boolean => {
+    const dx = Math.abs(current.x - last.x);
+    const dy = Math.abs(current.y - last.y);
+    const dz = Math.abs(current.z - last.z);
+    return dx > changeThreshold || dy > changeThreshold || dz > changeThreshold;
   };
 
   const startGyroscope = useCallback(() => {
@@ -55,8 +66,21 @@ export const useGyroscope = (settings: RecordingSettings): UseGyroscopeReturn =>
         filteredZ = previousGyroData.current.z;
       }
 
-      previousGyroData.current = { x: filteredX, y: filteredY, z: filteredZ };
-      setGyroData({ x: filteredX, y: filteredY, z: filteredZ });
+      const currentData = { x: filteredX, y: filteredY, z: filteredZ };
+      previousGyroData.current = currentData;
+      setGyroData(currentData);
+
+      // Record data when values change during recording
+      if (isRecordingRef.current && hasValueChanged(currentData, lastRecordedDataRef.current)) {
+        const utcTimestamp = getUTCTimestamp();
+        gyroDataRef.current.push({
+          timestamp: utcTimestamp,
+          x: filteredX,
+          y: filteredY,
+          z: filteredZ,
+        });
+        lastRecordedDataRef.current = { ...currentData };
+      }
     });
   }, []);
 
@@ -64,33 +88,21 @@ export const useGyroscope = (settings: RecordingSettings): UseGyroscopeReturn =>
     gyroDataRef.current = [];
     const recordingStartTime = startTimestamp || Date.now();
     recordingStartTimeRef.current = recordingStartTime;
-    const samplingInterval = 500; // 500ms interval during video recording
+    isRecordingRef.current = true;
 
     const initialTimestamp = recordingStartTime;
+    const initialData = { ...previousGyroData.current };
     gyroDataRef.current.push({
       timestamp: initialTimestamp,
-      x: previousGyroData.current.x,
-      y: previousGyroData.current.y,
-      z: previousGyroData.current.z,
+      x: initialData.x,
+      y: initialData.y,
+      z: initialData.z,
     });
-
-    gyroCollectionInterval.current = setInterval(() => {
-      const utcTimestamp = getUTCTimestamp();
-
-      gyroDataRef.current.push({
-        timestamp: utcTimestamp,
-        x: previousGyroData.current.x,
-        y: previousGyroData.current.y,
-        z: previousGyroData.current.z,
-      });
-    }, samplingInterval);
+    lastRecordedDataRef.current = { ...initialData };
   }, []);
 
   const stopGyroscopeDataCollection = useCallback(() => {
-    if (gyroCollectionInterval.current) {
-      clearInterval(gyroCollectionInterval.current);
-      gyroCollectionInterval.current = null;
-    }
+    isRecordingRef.current = false;
   }, []);
 
   useEffect(() => {

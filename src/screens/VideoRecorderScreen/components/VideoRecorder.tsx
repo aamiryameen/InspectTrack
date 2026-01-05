@@ -63,6 +63,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const [settings, setSettings] = useState<RecordingSettings>(initialSettings);
   const [zoom, setZoom] = useState<number>(initialZoom);
   const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [focusPoint, setFocusPoint] = useState<{ x: number; y: number } | null>(null);
   const [cameraLayout, setCameraLayout] = useState({ width: 0, height: 0 });
@@ -83,6 +84,8 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const findFileIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const wasRecordingBeforeBackgroundRef = useRef<boolean>(false);
+  const isPausingRef = useRef<boolean>(false);
+  const pausedVideoPathRef = useRef<string | null>(null);
 
   const {
     cpuUsage,
@@ -96,8 +99,8 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const { gyroDataRef, startGyroscopeDataCollection, stopGyroscopeDataCollection } = useGyroscope(settings);
   const { accelDataRef, startAccelerometerDataCollection, stopAccelerometerDataCollection } = useAccelerometer(settings);
   const { magnetometerDataRef, startMagnetometerDataCollection, stopMagnetometerDataCollection } = useMagnetometer(settings);
-  const { gpsDataRef, totalDistanceRef, startGPSDataCollection, stopGPSDataCollection } = useLocationTracking(settings);
-  const { recordingTime, pulseAnim, startTimer, stopTimer, resetTimer, formatTime } = useRecordingTimer(isRecording);
+  const { gpsDataRef, totalDistanceRef, gpsQuality, startGPSDataCollection, stopGPSDataCollection, pauseGPSDataCollection, resumeGPSDataCollection } = useLocationTracking(settings);
+  const { recordingTime, pulseAnim, startTimer, stopTimer, pauseTimer, resumeTimer, resetTimer, formatTime } = useRecordingTimer(isRecording, isPaused);
 
   const device = useCameraDevice('back');
   const resolution = getResolutionDimensions(settings.video.resolution);
@@ -455,10 +458,14 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     try {
       const gpsFileName = 'gps.csv';
       const gpsFilePath = `${folderPath}/${gpsFileName}`;
-      const header = 'timestamp,latitude,longitude,speed,heading\n';
+      const header = 'ts,lat,lon,speed_mps,heading_deg\n';
       const gpsCsvRows = gpsDataRef.current
         // @ts-ignore: gpsDataRef points include latitude/longitude/speed/heading
-        .map(p => `${p.timestamp},${p.latitude},${p.longitude},${p.speed ?? ''},${p.heading ?? ''}`)
+        .map(p => {
+          // Convert timestamp from milliseconds to UTC seconds with microseconds as decimal points
+          const timestampSeconds = (p.timestamp / 1000).toFixed(3);
+          return `${timestampSeconds},${p.latitude},${p.longitude},${p.speed ?? ''},${p.heading ?? ''}`;
+        })
         .join('\n');
       await RNFS.writeFile(gpsFilePath, header + gpsCsvRows, 'utf8');
       return gpsFileName;
@@ -507,6 +514,45 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       return false;
     }
   };
+
+  const resetToOriginalState = useCallback(() => {
+    if (!isMountedRef.current) return;
+    
+    // Reset all recording state
+    setIsRecording(false);
+    setIsPaused(false);
+    setIsProcessing(false);
+    isRecordingRef.current = false;
+    isPausingRef.current = false;
+    pausedVideoPathRef.current = null;
+    
+    // Reset timer
+    resetTimer();
+    stopTimer();
+    
+    // Reset stats
+    resetStats();
+    
+    // Clear refs
+    recordingStartTime.current = 0;
+    recordingEndTime.current = 0;
+    startTimeRef.current = '';
+    endTimeRef.current = '';
+    currentRecordingPathRef.current = null;
+    setRecordingVideoPath(null);
+    
+    // Clear intervals
+    if (findFileIntervalRef.current) {
+      clearInterval(findFileIntervalRef.current);
+      findFileIntervalRef.current = null;
+    }
+    
+    // Stop all sensor data collection
+    stopGPSDataCollection();
+    stopGyroscopeDataCollection();
+    stopAccelerometerDataCollection();
+    stopMagnetometerDataCollection();
+  }, [resetTimer, stopTimer, resetStats, stopGPSDataCollection, stopGyroscopeDataCollection, stopAccelerometerDataCollection, stopMagnetometerDataCollection]);
 
   const handleVideoSave = useCallback(async (videoPath: string) => {
     try {
@@ -580,8 +626,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
 
       if (isMountedRef.current) {
         setIsProcessing(false);
-        resetTimer();
-
+        
         const saveLocation = Platform.OS === 'ios' ? 'Files app' : 'Downloads folder';
         const allSaved = videoSaved && gpsSaved && gyroSaved && accelSaved && magnetometerSaved && systemConfigSaved && sensorConfigSaved && sessionInfoSaved;
 
@@ -596,46 +641,48 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
             `📊 ${accelDataRef.current.length} Accelerometer points\n` +
             `🧲 ${magnetometerDataRef.current.length} Magnetometer points\n` +
             `⚙️ Camera settings`,
-            [{ text: 'OK' }]
+            [{ 
+              text: 'OK',
+              onPress: () => {
+                // Reset to original state after user dismisses alert
+                resetToOriginalState();
+              }
+            }]
           );
         } else {
           Alert.alert(
             'Partial Save',
             `Some files may not have been saved correctly.\nFolder: ${folderName}\nPlease check your storage.`,
-            [{ text: 'OK' }]
+            [{ 
+              text: 'OK',
+              onPress: () => {
+                // Reset to original state after user dismisses alert
+                resetToOriginalState();
+              }
+            }]
           );
         }
-
-        setTimeout(() => {
-          if (isMountedRef.current) {
-            navigation.navigate('Summary', {
-              startTime: startTimeRef.current,
-              endTime: endTimeRef.current,
-              distance: savedDistance,
-              duration: savedDuration,
-              avgCPU,
-              highestCPU,
-              avgMemory,
-              highestMemory,
-              videoPath: destPath,
-              gpsFilePath: gpsFilePath,
-              gyroscopeFilePath: gyroscopeFilePath,
-              accelerometerFilePath: accelerometerFilePath,
-              magnetometerFilePath: magnetometerFilePath,
-              cameraSettingsFilePath: cameraSettingsFilePath,
-              settings: settings,
-            });
-          }
-        }, 2000);
+        
+        console.log(`✅ Files saved to: ${folderName}`);
       }
     } catch (error) {
       console.error('Save video error:', error);
       if (isMountedRef.current) {
-        Alert.alert('Error', 'Failed to save files. Please try again.');
         setIsProcessing(false);
+        Alert.alert(
+          'Error', 
+          'Failed to save files. Please try again.',
+          [{
+            text: 'OK',
+            onPress: () => {
+              // Reset to original state even on error
+              resetToOriginalState();
+            }
+          }]
+        );
       }
     }
-  }, [settings, recordingTime, navigation, resetTimer]);
+  }, [settings, recordingTime, navigation, resetTimer, resetToOriginalState]);
 
   const findRecordingFile = useCallback(async (): Promise<string | null> => {
     try {
@@ -743,7 +790,10 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       const synchronizedStartTime = Date.now();
       recordingStartTime.current = synchronizedStartTime;
       recordingEndTime.current = 0;
+      isPausingRef.current = false;
+      pausedVideoPathRef.current = null; // Clear any paused video path from previous session
       setIsRecording(true);
+      setIsPaused(false);
       resetStats();
       startTimer(synchronizedStartTime);
       startGPSDataCollection(synchronizedStartTime);
@@ -806,7 +856,15 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
           if (isMountedRef.current) {
             setRecordingVideoPath(null);
             currentRecordingPathRef.current = null;
-            await handleVideoSave(video.path);
+            // Only save if we're not pausing (i.e., we're actually stopping)
+            const wasPausing = isPausingRef.current;
+            isPausingRef.current = false; // Reset the flag
+            if (!wasPausing) {
+              await handleVideoSave(video.path);
+            } else {
+              // Store the video path when pausing so we can save it when stopping
+              pausedVideoPathRef.current = video.path;
+            }
           }
         },
         onRecordingError: (error) => {
@@ -825,29 +883,12 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
             return;
           }
 
-          const displayErrorMessage = 'Failed to record video. Please check camera permissions and try again.';
+          // Don't show alert - just log the error and stop recording
+          console.error('Recording error:', error);
 
           if (isMountedRef.current) {
             setRecordingVideoPath(null);
             currentRecordingPathRef.current = null;
-            Alert.alert('Recording Error', displayErrorMessage, [
-              {
-                text: 'OK',
-                onPress: () => {
-                  if (isMountedRef.current) {
-                    setIsRecording(false);
-                    stopTimer();
-                    stopGPSDataCollection();
-                    stopGyroscopeDataCollection();
-                    stopAccelerometerDataCollection();
-                    stopMagnetometerDataCollection();
-                  }
-                }
-              }
-            ]);
-          }
-
-          if (isMountedRef.current) {
             setIsRecording(false);
             stopTimer();
             stopGPSDataCollection();
@@ -880,11 +921,166 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       }, [startTimer, startGPSDataCollection, startGyroscopeDataCollection, startAccelerometerDataCollection, startMagnetometerDataCollection, resetStats, stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, stopAccelerometerDataCollection, stopMagnetometerDataCollection, handleVideoSave, findRecordingFile, setRecordingVideoPath, device, format]);
 
   const pauseRecording = useCallback(async () => {
-    if (!isMountedRef.current || !camera.current) return;
+    if (!isMountedRef.current || !camera.current || !isRecording) return;
     try {
       if (!isMountedRef.current) return;
+      isPausingRef.current = true;
+      setIsPaused(true);
+      pauseTimer();
+      pauseGPSDataCollection();
+      stopGyroscopeDataCollection();
+      stopAccelerometerDataCollection();
+      stopMagnetometerDataCollection();
+      
+      // Stop video recording when paused
+      // The isPausingRef flag will be reset in onRecordingFinished callback
+      await camera.current.stopRecording();
+      
+      if (findFileIntervalRef.current) {
+        clearInterval(findFileIntervalRef.current);
+        findFileIntervalRef.current = null;
+      }
+      setRecordingVideoPath(null);
+      currentRecordingPathRef.current = null;
+    } catch (error) {
+      console.error('Pause recording error:', error);
+      isPausingRef.current = false;
+      if (isMountedRef.current) {
+        setIsPaused(false);
+        resumeTimer();
+        resumeGPSDataCollection();
+        startGyroscopeDataCollection();
+        startAccelerometerDataCollection();
+        startMagnetometerDataCollection();
+        // Don't show alert - just log the error
+        console.error('Failed to pause recording:', error);
+      }
+    }
+  }, [pauseTimer, pauseGPSDataCollection, stopGyroscopeDataCollection, stopAccelerometerDataCollection, stopMagnetometerDataCollection, setRecordingVideoPath, isRecording, startGyroscopeDataCollection, startAccelerometerDataCollection, startMagnetometerDataCollection, resumeTimer, resumeGPSDataCollection]);
+
+  const resumeRecording = useCallback(async () => {
+    if (!isMountedRef.current || !camera.current || !isRecording || !isPaused) return;
+    try {
+      if (!isMountedRef.current) return;
+      if (!device || !format) {
+        Alert.alert('Error', 'Camera device not available. Please try again.');
+        return;
+      }
+
+      setIsPaused(false);
+      pausedVideoPathRef.current = null; // Clear paused video path when resuming (starting new segment)
+      resumeTimer();
+      resumeGPSDataCollection();
+      startGyroscopeDataCollection();
+      startAccelerometerDataCollection();
+      startMagnetometerDataCollection();
+
+      // Start new video recording segment
+      findFileIntervalRef.current = setInterval(async () => {
+        if (!isMountedRef.current || !isRecordingRef.current) {
+          if (findFileIntervalRef.current) {
+            clearInterval(findFileIntervalRef.current);
+            findFileIntervalRef.current = null;
+          }
+          return;
+        }
+        try {
+          const recordingPath = await findRecordingFile();
+          if (recordingPath && isMountedRef.current) {
+            try {
+              const fileInfo = await RNFS.stat(recordingPath);
+              const fileSize = fileInfo.size || 0;
+              const mtime = fileInfo.mtime || 0;
+              const ctime = fileInfo.ctime || mtime;
+              const currentTime = Date.now();
+              const timeSinceModified = currentTime - mtime;
+              const timeSinceCreated = currentTime - ctime;
+              const timeWindow = Platform.OS === 'ios' ? 300000 : 120000;
+              const isRecent = (mtime > 0 && timeSinceModified < timeWindow) || 
+                              (ctime > 0 && timeSinceCreated < timeWindow);
+              if (isRecent && fileSize >= 0) {
+                if (currentRecordingPathRef.current !== recordingPath) {
+                  currentRecordingPathRef.current = recordingPath;
+                  setRecordingVideoPath(recordingPath);
+                } else {
+                  setRecordingVideoPath(recordingPath);
+                }
+              }
+            } catch (statError) {
+            }
+          }
+        } catch (error) {
+        }
+      }, Platform.OS === 'ios' ? 500 : 1000);
+
+      camera.current.startRecording({
+        onRecordingFinished: async (video) => {
+          if (findFileIntervalRef.current) {
+            clearInterval(findFileIntervalRef.current);
+            findFileIntervalRef.current = null;
+          }
+          if (isMountedRef.current) {
+            setRecordingVideoPath(null);
+            currentRecordingPathRef.current = null;
+            // Only save if we're not pausing (i.e., we're actually stopping)
+            const wasPausing = isPausingRef.current;
+            isPausingRef.current = false; // Reset the flag
+            if (!wasPausing) {
+              await handleVideoSave(video.path);
+            } else {
+              // Store the video path when pausing so we can save it when stopping
+              pausedVideoPathRef.current = video.path;
+            }
+          }
+        },
+        onRecordingError: (error) => {
+          console.error('Recording error:', error);
+          if (isMountedRef.current) {
+            setIsPaused(true);
+            pauseTimer();
+            pauseGPSDataCollection();
+            stopGyroscopeDataCollection();
+            stopAccelerometerDataCollection();
+            stopMagnetometerDataCollection();
+            // Don't show alert - just log the error
+            console.error('Failed to resume recording:', error);
+          }
+        },
+      });
+    } catch (error) {
+      console.error('Resume recording error:', error);
+      if (isMountedRef.current) {
+        setIsPaused(true);
+        pauseTimer();
+        pauseGPSDataCollection();
+        stopGyroscopeDataCollection();
+        stopAccelerometerDataCollection();
+        stopMagnetometerDataCollection();
+        // Don't show alert - just log the error
+        console.error('Failed to resume recording:', error);
+      }
+    }
+  }, [isRecording, isPaused, resumeTimer, resumeGPSDataCollection, startGyroscopeDataCollection, startAccelerometerDataCollection, startMagnetometerDataCollection, pauseTimer, pauseGPSDataCollection, stopGyroscopeDataCollection, stopAccelerometerDataCollection, stopMagnetometerDataCollection, findRecordingFile, setRecordingVideoPath, device, format]);
+
+  const handleRecordPress = useCallback(() => {
+    if (isRecording && !isPaused) {
+      pauseRecording();
+    } else if (isRecording && isPaused) {
+      resumeRecording();
+    } else {
+      startRecording();
+    }
+  }, [isRecording, isPaused, pauseRecording, resumeRecording, startRecording]);
+
+  const handleStopPress = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    if (!isRecording && !isRecordingRef.current) return; // Not recording, nothing to stop
+    
+    try {
+      isPausingRef.current = false; // We're stopping, not pausing
       isRecordingRef.current = false;
       setIsProcessing(true);
+      setIsPaused(false);
       stopGPSDataCollection();
       stopGyroscopeDataCollection();
       stopAccelerometerDataCollection();
@@ -902,37 +1098,85 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       }
       setRecordingVideoPath(null);
       currentRecordingPathRef.current = null;
-      await camera.current.stopRecording();
-      if (isMountedRef.current) {
-        setIsRecording(false);
-        stopTimer();
+      
+      // Only stop recording if it's currently active (not paused)
+      // If paused, the recording was already stopped, so we use the stored video path
+      if (!isPaused && camera.current) {
+        try {
+          await camera.current.stopRecording();
+        } catch (stopError) {
+          console.error('Error stopping camera recording:', stopError);
+          // Continue with file save even if stopRecording fails
+        }
+      } else if (isPaused) {
+        // When paused, save the video that was recorded before pausing
+        let videoPathToSave: string | null = null;
+        
+        // First try to use the stored paused video path
+        if (pausedVideoPathRef.current) {
+          videoPathToSave = pausedVideoPathRef.current;
+          pausedVideoPathRef.current = null; // Clear the stored path
+        } else {
+          // Fallback: try to find the last recorded video file
+          try {
+            videoPathToSave = await findRecordingFile();
+          } catch (findError) {
+            console.error('Error finding video file:', findError);
+          }
+        }
+        
+        if (videoPathToSave && isMountedRef.current) {
+          try {
+            // Verify the file exists before trying to save
+            const fileExists = await RNFS.exists(videoPathToSave);
+            if (fileExists) {
+              await handleVideoSave(videoPathToSave);
+              return; // Exit early since we handled the save
+            } else {
+              console.error('Video file does not exist:', videoPathToSave);
+              // File doesn't exist, reset to original state
+              resetToOriginalState();
+              return;
+            }
+          } catch (saveError) {
+            console.error('Error saving paused video:', saveError);
+            // Error saving, reset to original state
+            resetToOriginalState();
+            return;
+          }
+        } else {
+          console.warn('No video file found to save when stopping paused recording');
+          // No video file, reset to original state
+          resetToOriginalState();
+          return;
+        }
+      }
+      
+      // If not paused, the onRecordingFinished callback will handle the save and reset
+      // But we still need to reset state here in case the callback doesn't fire
+      if (isMountedRef.current && !isPaused) {
+        // The save will be handled by onRecordingFinished callback
+        // Just ensure we're not in processing state if callback doesn't fire
+        setTimeout(() => {
+          if (isMountedRef.current && isRecording) {
+            // If still recording after timeout, something went wrong, reset state
+            resetToOriginalState();
+          }
+        }, 5000);
       }
     } catch (error) {
-      console.error('Pause recording error:', error);
+      console.error('Stop recording error:', error);
       if (findFileIntervalRef.current) {
         clearInterval(findFileIntervalRef.current);
         findFileIntervalRef.current = null;
       }
       if (isMountedRef.current) {
-        setRecordingVideoPath(null);
-        currentRecordingPathRef.current = null;
-        Alert.alert('Error', 'Failed to stop recording');
-        setIsProcessing(false);
-        stopGPSDataCollection();
-        stopGyroscopeDataCollection();
-        stopAccelerometerDataCollection();
-        stopMagnetometerDataCollection();
+        // Reset to original state on error
+        resetToOriginalState();
+        console.error('Failed to stop recording:', error);
       }
     }
-  }, [stopTimer, stopGPSDataCollection, stopGyroscopeDataCollection, stopAccelerometerDataCollection, stopMagnetometerDataCollection, setRecordingVideoPath]);
-
-  const handleRecordPress = useCallback(() => {
-    if (isRecording) {
-      pauseRecording();
-    } else {
-      startRecording();
-    }
-  }, [isRecording, pauseRecording, startRecording]);
+  }, [isRecording, isPaused, resetToOriginalState, findRecordingFile, handleVideoSave]);
 
   const handleClosePress = useCallback(() => {
     if (isRecording) {
@@ -1002,7 +1246,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
           isActive={isCameraActive}
           photo={true}
           video={true}
-          audio={true}
+          audio={false}
           format={format}
           fps={fps}
           zoom={zoom}
@@ -1021,6 +1265,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       <View style={styles.overlay} pointerEvents="box-none">
         <RecordingBadge
           isRecording={isRecording}
+          isPaused={isPaused}
           pulseAnim={pulseAnim}
           formattedTime={formatTime(recordingTime)}
         />
@@ -1036,12 +1281,15 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
           resolution={settings.video.resolution}
           fps={fps}
           hdrEnabled={hdrEnabled || false}
+          gpsQuality={gpsQuality}
         />
 
         <BottomControls
           isRecording={isRecording}
+          isPaused={isPaused}
           isProcessing={isProcessing}
           onRecordPress={handleRecordPress}
+          onStopPress={handleStopPress}
           onClosePress={handleClosePress}
         />
       </View>
@@ -1063,3 +1311,5 @@ const styles = StyleSheet.create({
 });
 
 export default VideoRecorder;
+
+

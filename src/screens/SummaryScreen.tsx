@@ -92,8 +92,9 @@ const SummaryScreen: React.FC<SummaryScreenProps> = ({ route, navigation }) => {
             const first = dataLines[0].split(',');
             const last = dataLines[dataLines.length - 1].split(',');
 
-            const recordingStartTime = Number(first[0]);
-            const recordingEndTime = Number(last[0]);
+            // Convert UTC seconds (with decimal microseconds) back to milliseconds for Date constructor
+            const recordingStartTime = Number(first[0]) * 1000;
+            const recordingEndTime = Number(last[0]) * 1000;
 
             setGpsData({ recordingStartTime, recordingEndTime });
             console.log('GPS CSV data loaded successfully');

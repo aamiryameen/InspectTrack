@@ -24,8 +24,9 @@ export const useMagnetometer = (settings: RecordingSettings): UseMagnetometerRet
   const magnetometerSubscription = useRef<any>(null);
   const previousMagnetometerData = useRef<MagnetometerData>({ x: 0, y: 0, z: 0 });
   const magnetometerDataRef = useRef<MagnetometerDataPoint[]>([]);
-  const magnetometerCollectionInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isRecordingRef = useRef<boolean>(false);
   const recordingStartTimeRef = useRef<number | null>(null);
+  const lastRecordedDataRef = useRef<MagnetometerData>({ x: 0, y: 0, z: 0 });
 
   const getUTCTimestamp = (): number => {
     try {
@@ -33,6 +34,16 @@ export const useMagnetometer = (settings: RecordingSettings): UseMagnetometerRet
     } catch (error) {
       return Date.now();
     }
+  };
+
+  // Threshold to detect significant changes (in μT for magnetometer)
+  const changeThreshold = 1.0;
+
+  const hasValueChanged = (current: MagnetometerData, last: MagnetometerData): boolean => {
+    const dx = Math.abs(current.x - last.x);
+    const dy = Math.abs(current.y - last.y);
+    const dz = Math.abs(current.z - last.z);
+    return dx > changeThreshold || dy > changeThreshold || dz > changeThreshold;
   };
 
   const startMagnetometer = useCallback(() => {
@@ -54,8 +65,21 @@ export const useMagnetometer = (settings: RecordingSettings): UseMagnetometerRet
         filteredZ = previousMagnetometerData.current.z;
       }
 
-      previousMagnetometerData.current = { x: filteredX, y: filteredY, z: filteredZ };
-      setMagnetometerData({ x: filteredX, y: filteredY, z: filteredZ });
+      const currentData = { x: filteredX, y: filteredY, z: filteredZ };
+      previousMagnetometerData.current = currentData;
+      setMagnetometerData(currentData);
+
+      // Record data when values change during recording
+      if (isRecordingRef.current && hasValueChanged(currentData, lastRecordedDataRef.current)) {
+        const utcTimestamp = getUTCTimestamp();
+        magnetometerDataRef.current.push({
+          timestamp: utcTimestamp,
+          x: filteredX,
+          y: filteredY,
+          z: filteredZ,
+        });
+        lastRecordedDataRef.current = { ...currentData };
+      }
     });
   }, []);
 
@@ -63,33 +87,21 @@ export const useMagnetometer = (settings: RecordingSettings): UseMagnetometerRet
     magnetometerDataRef.current = [];
     const recordingStartTime = startTimestamp || Date.now();
     recordingStartTimeRef.current = recordingStartTime;
-    const samplingInterval = 500; // 500ms interval during video recording
+    isRecordingRef.current = true;
 
     const initialTimestamp = recordingStartTime;
+    const initialData = { ...previousMagnetometerData.current };
     magnetometerDataRef.current.push({
       timestamp: initialTimestamp,
-      x: previousMagnetometerData.current.x,
-      y: previousMagnetometerData.current.y,
-      z: previousMagnetometerData.current.z,
+      x: initialData.x,
+      y: initialData.y,
+      z: initialData.z,
     });
-
-    magnetometerCollectionInterval.current = setInterval(() => {
-      const utcTimestamp = getUTCTimestamp();
-
-      magnetometerDataRef.current.push({
-        timestamp: utcTimestamp,
-        x: previousMagnetometerData.current.x,
-        y: previousMagnetometerData.current.y,
-        z: previousMagnetometerData.current.z,
-      });
-    }, samplingInterval);
+    lastRecordedDataRef.current = { ...initialData };
   }, []);
 
   const stopMagnetometerDataCollection = useCallback(() => {
-    if (magnetometerCollectionInterval.current) {
-      clearInterval(magnetometerCollectionInterval.current);
-      magnetometerCollectionInterval.current = null;
-    }
+    isRecordingRef.current = false;
   }, []);
 
   useEffect(() => {

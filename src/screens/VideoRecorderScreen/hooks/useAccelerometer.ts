@@ -24,8 +24,9 @@ export const useAccelerometer = (settings: RecordingSettings): UseAccelerometerR
   const accelSubscription = useRef<any>(null);
   const previousAccelData = useRef<AccelData>({ x: 0, y: 0, z: 0 });
   const accelDataRef = useRef<AccelDataPoint[]>([]);
-  const accelCollectionInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isRecordingRef = useRef<boolean>(false);
   const recordingStartTimeRef = useRef<number | null>(null);
+  const lastRecordedDataRef = useRef<AccelData>({ x: 0, y: 0, z: 0 });
 
   const getUTCTimestamp = (): number => {
     try {
@@ -33,6 +34,16 @@ export const useAccelerometer = (settings: RecordingSettings): UseAccelerometerR
     } catch (error) {
       return Date.now();
     }
+  };
+
+  // Threshold to detect significant changes (in m/s² for accelerometer)
+  const changeThreshold = 0.1;
+
+  const hasValueChanged = (current: AccelData, last: AccelData): boolean => {
+    const dx = Math.abs(current.x - last.x);
+    const dy = Math.abs(current.y - last.y);
+    const dz = Math.abs(current.z - last.z);
+    return dx > changeThreshold || dy > changeThreshold || dz > changeThreshold;
   };
 
   const startAccelerometer = useCallback(() => {
@@ -54,8 +65,21 @@ export const useAccelerometer = (settings: RecordingSettings): UseAccelerometerR
         filteredZ = previousAccelData.current.z;
       }
 
-      previousAccelData.current = { x: filteredX, y: filteredY, z: filteredZ };
-      setAccelData({ x: filteredX, y: filteredY, z: filteredZ });
+      const currentData = { x: filteredX, y: filteredY, z: filteredZ };
+      previousAccelData.current = currentData;
+      setAccelData(currentData);
+
+      // Record data when values change during recording
+      if (isRecordingRef.current && hasValueChanged(currentData, lastRecordedDataRef.current)) {
+        const utcTimestamp = getUTCTimestamp();
+        accelDataRef.current.push({
+          timestamp: utcTimestamp,
+          x: filteredX,
+          y: filteredY,
+          z: filteredZ,
+        });
+        lastRecordedDataRef.current = { ...currentData };
+      }
     });
   }, []);
 
@@ -63,33 +87,21 @@ export const useAccelerometer = (settings: RecordingSettings): UseAccelerometerR
     accelDataRef.current = [];
     const recordingStartTime = startTimestamp || Date.now();
     recordingStartTimeRef.current = recordingStartTime;
-    const samplingInterval = 500; // 500ms interval during video recording
+    isRecordingRef.current = true;
 
     const initialTimestamp = recordingStartTime;
+    const initialData = { ...previousAccelData.current };
     accelDataRef.current.push({
       timestamp: initialTimestamp,
-      x: previousAccelData.current.x,
-      y: previousAccelData.current.y,
-      z: previousAccelData.current.z,
+      x: initialData.x,
+      y: initialData.y,
+      z: initialData.z,
     });
-
-    accelCollectionInterval.current = setInterval(() => {
-      const utcTimestamp = getUTCTimestamp();
-
-      accelDataRef.current.push({
-        timestamp: utcTimestamp,
-        x: previousAccelData.current.x,
-        y: previousAccelData.current.y,
-        z: previousAccelData.current.z,
-      });
-    }, samplingInterval);
+    lastRecordedDataRef.current = { ...initialData };
   }, []);
 
   const stopAccelerometerDataCollection = useCallback(() => {
-    if (accelCollectionInterval.current) {
-      clearInterval(accelCollectionInterval.current);
-      accelCollectionInterval.current = null;
-    }
+    isRecordingRef.current = false;
   }, []);
 
   useEffect(() => {
