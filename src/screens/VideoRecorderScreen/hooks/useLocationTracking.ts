@@ -15,6 +15,7 @@ interface GPSDataPoint {
   timestamp: number;
   latitude: number;
   longitude: number;
+  altitude?: number;
   accuracy?: number;
   speed?: number;
   heading?: number;
@@ -109,6 +110,7 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
   const recordingStartTimeRef = useRef<number | null>(null);
   const isPausedRef = useRef<boolean>(false);
   const lastGPSPointBeforePauseRef = useRef<GPSDataPoint | null>(null);
+  const lastValidHeadingRef = useRef<number | undefined>(undefined);
 
   const getUTCTimestamp = (): number => {
     try {
@@ -160,6 +162,7 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
   const startGPSDataCollection = useCallback((startTimestamp?: number) => {
     gpsDataRef.current = [];
     totalDistanceRef.current = 0;
+    lastValidHeadingRef.current = undefined;
     const recordingStartTime = startTimestamp || Date.now();
     recordingStartTimeRef.current = recordingStartTime;
     
@@ -175,17 +178,25 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
     Geolocation.getCurrentPosition(
       (position) => {
         const initialTimestamp = recordingStartTime;
-        const { latitude, longitude, accuracy, speed, heading } = position.coords;
+        const { latitude, longitude, altitude, accuracy, speed, heading } = position.coords;
         const quality = getGPSQuality(accuracy);
         setGpsQuality(quality);
+
+        // Store initial heading if valid
+        let initialHeading: number | undefined = undefined;
+        if (heading !== null && heading !== undefined && heading > 0) {
+          lastValidHeadingRef.current = heading;
+          initialHeading = heading;
+        }
 
         gpsDataRef.current.push({
           timestamp: initialTimestamp,
           latitude,
           longitude,
+          altitude: (altitude !== null && altitude !== undefined) ? altitude : undefined,
           accuracy,
           speed: (speed !== null && speed !== undefined && speed >= 0) ? speed : undefined,
-          heading: (heading !== null && heading !== undefined && heading >= 0) ? heading : undefined,
+          heading: initialHeading,
           quality,
         });
 
@@ -201,12 +212,13 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
           Geolocation.getCurrentPosition(
             (position) => {
               const utcTimestamp = getUTCTimestamp();
-              const { latitude, longitude, accuracy, speed, heading } = position.coords;
+              const { latitude, longitude, altitude, accuracy, speed, heading } = position.coords;
               const quality = getGPSQuality(accuracy);
               setGpsQuality(quality);
 
               let calculatedHeading: number | undefined = undefined;
               let calculatedSpeed: number | undefined = undefined;
+              const movementThreshold = 0.000001; // ~0.11 meters - very small threshold to calculate heading
               if (gpsDataRef.current.length > 0) {
                 const prevPoint = gpsDataRef.current[gpsDataRef.current.length - 1];
                 const distance = calculateDistance(
@@ -217,26 +229,62 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
                 );
                 totalDistanceRef.current += distance;
                 const timeDiff = utcTimestamp - prevPoint.timestamp;
-                if (heading === null || heading === undefined || heading < 0) {
+                
+                // Always try to calculate heading from previous point if there's any movement at all
+                if (distance > movementThreshold) {
+                  // Calculate heading from coordinates when there's any movement
                   calculatedHeading = calculateHeading(
                     prevPoint.latitude,
                     prevPoint.longitude,
                     latitude,
                     longitude
                   );
+                  // Use GPS heading if it's valid (GPS is more accurate when available)
+                  if (heading !== null && heading !== undefined && heading > 0) {
+                    calculatedHeading = heading;
+                  }
+                  // Update last valid heading when there's movement
+                  if (calculatedHeading !== undefined) {
+                    lastValidHeadingRef.current = calculatedHeading;
+                  }
+                } else {
+                  // No movement - use last valid heading if available
+                  if (lastValidHeadingRef.current !== undefined) {
+                    calculatedHeading = lastValidHeadingRef.current;
+                  } else if (heading !== null && heading !== undefined && heading > 0) {
+                    // Use GPS heading if available, even if stationary
+                    calculatedHeading = heading;
+                    lastValidHeadingRef.current = heading;
+                  } else if (prevPoint.heading !== undefined && prevPoint.heading !== null) {
+                    // Use previous point's heading as fallback
+                    calculatedHeading = prevPoint.heading;
+                    lastValidHeadingRef.current = prevPoint.heading;
+                  }
                 }
                 if (speed === null || speed === undefined || speed < 0) {
                   calculatedSpeed = calculateSpeed(distance, timeDiff);
                 }
+              } else {
+                // First point - store heading if valid
+                if (heading !== null && heading !== undefined && heading > 0) {
+                  lastValidHeadingRef.current = heading;
+                  calculatedHeading = heading;
+                }
               }
+
+              // Determine final heading: prefer GPS heading if valid, otherwise use calculated, otherwise use last valid
+              const finalHeading = (heading !== null && heading !== undefined && heading > 0) 
+                ? heading 
+                : (calculatedHeading !== undefined ? calculatedHeading : lastValidHeadingRef.current);
 
               gpsDataRef.current.push({
                 timestamp: utcTimestamp,
                 latitude,
                 longitude,
+                altitude: (altitude !== null && altitude !== undefined) ? altitude : undefined,
                 accuracy,
                 speed: (speed !== null && speed !== undefined && speed >= 0) ? speed : calculatedSpeed,
-                heading: (heading !== null && heading !== undefined && heading >= 0) ? heading : calculatedHeading,
+                heading: finalHeading,
                 quality,
               });
             },
@@ -268,12 +316,13 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
           Geolocation.getCurrentPosition(
             (position) => {
               const utcTimestamp = getUTCTimestamp();
-              const { latitude, longitude, accuracy, speed, heading } = position.coords;
+              const { latitude, longitude, altitude, accuracy, speed, heading } = position.coords;
               const quality = getGPSQuality(accuracy);
               setGpsQuality(quality);
 
               let calculatedHeading: number | undefined = undefined;
               let calculatedSpeed: number | undefined = undefined;
+              const movementThreshold = 0.000001; // ~0.11 meters - very small threshold to calculate heading
               if (gpsDataRef.current.length > 0) {
                 const prevPoint = gpsDataRef.current[gpsDataRef.current.length - 1];
                 const distance = calculateDistance(
@@ -284,26 +333,62 @@ export const useLocationTracking = (settings: RecordingSettings): UseLocationTra
                 );
                 totalDistanceRef.current += distance;
                 const timeDiff = utcTimestamp - prevPoint.timestamp;
-                if (heading === null || heading === undefined || heading < 0) {
+                
+                // Always try to calculate heading from previous point if there's any movement at all
+                if (distance > movementThreshold) {
+                  // Calculate heading from coordinates when there's any movement
                   calculatedHeading = calculateHeading(
                     prevPoint.latitude,
                     prevPoint.longitude,
                     latitude,
                     longitude
                   );
+                  // Use GPS heading if it's valid (GPS is more accurate when available)
+                  if (heading !== null && heading !== undefined && heading > 0) {
+                    calculatedHeading = heading;
+                  }
+                  // Update last valid heading when there's movement
+                  if (calculatedHeading !== undefined) {
+                    lastValidHeadingRef.current = calculatedHeading;
+                  }
+                } else {
+                  // No movement - use last valid heading if available
+                  if (lastValidHeadingRef.current !== undefined) {
+                    calculatedHeading = lastValidHeadingRef.current;
+                  } else if (heading !== null && heading !== undefined && heading > 0) {
+                    // Use GPS heading if available, even if stationary
+                    calculatedHeading = heading;
+                    lastValidHeadingRef.current = heading;
+                  } else if (prevPoint.heading !== undefined && prevPoint.heading !== null) {
+                    // Use previous point's heading as fallback
+                    calculatedHeading = prevPoint.heading;
+                    lastValidHeadingRef.current = prevPoint.heading;
+                  }
                 }
                 if (speed === null || speed === undefined || speed < 0) {
                   calculatedSpeed = calculateSpeed(distance, timeDiff);
                 }
+              } else {
+                // First point - store heading if valid
+                if (heading !== null && heading !== undefined && heading > 0) {
+                  lastValidHeadingRef.current = heading;
+                  calculatedHeading = heading;
+                }
               }
+
+              // Determine final heading: prefer GPS heading if valid, otherwise use calculated, otherwise use last valid
+              const finalHeading = (heading !== null && heading !== undefined && heading > 0) 
+                ? heading 
+                : (calculatedHeading !== undefined ? calculatedHeading : lastValidHeadingRef.current);
 
               gpsDataRef.current.push({
                 timestamp: utcTimestamp,
                 latitude,
                 longitude,
+                altitude: (altitude !== null && altitude !== undefined) ? altitude : undefined,
                 accuracy,
                 speed: (speed !== null && speed !== undefined && speed >= 0) ? speed : calculatedSpeed,
-                heading: (heading !== null && heading !== undefined && heading >= 0) ? heading : calculatedHeading,
+                heading: finalHeading,
                 quality,
               });
             },

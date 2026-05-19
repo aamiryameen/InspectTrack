@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "226460739840",
+    "project_id": "inspecttrack-4844b",
+    "storage_bucket": "inspecttrack-4844b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:226460739840:android:2a6e93ae15f91faee82be5",
+        "android_client_info": {
+          "package_name": "com.inspecttrack"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA4GqmK781JIQAMf7wYbzd68lJyckeypRY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -11,6 +11,8 @@ import { RecordingSettings } from './src/utils/settingsUtils';
 import { LogBox, Button, View } from 'react-native';
 import { initFirebase } from '../InspectTrack/src/utils/firebaseInit';
 import { initCrashlytics } from '../InspectTrack/src/utils/crashlyticsSetup';
+import UserNameModal from './src/components/UserNameModal';
+import { getUserProfile, UserProfile } from './src/utils/userProfileUtils';
 
 import crashlytics from '@react-native-firebase/crashlytics';
 
@@ -42,13 +44,38 @@ const handleCrashTest = () => {
 };
 
 const App = () => {
+  const [showUserNameModal, setShowUserNameModal] = useState(false);
+  const [isCheckingProfile, setIsCheckingProfile] = useState(true);
 
   LogBox.ignoreAllLogs()
 
   useEffect(() => {
-    initFirebase();      // Initialize Firebase in React Native
-    initCrashlytics();  
+    // Initialize Firebase services
+    // Firebase is auto-initialized by native side via google-services.json
+    initFirebase();
+    initCrashlytics();
+
+    // Check if user profile exists
+    const checkUserProfile = async () => {
+      try {
+        const profile = await getUserProfile();
+        if (!profile || !profile.firstName || !profile.lastName) {
+          setShowUserNameModal(true);
+        }
+      } catch (error) {
+        console.error('Error checking user profile:', error);
+        setShowUserNameModal(true);
+      } finally {
+        setIsCheckingProfile(false);
+      }
+    };
+
+    checkUserProfile();
   }, []);
+
+  const handleUserNameComplete = (profile: UserProfile) => {
+    setShowUserNameModal(false);
+  };
   
   return (
     <Provider store={store}>
@@ -83,7 +110,10 @@ const App = () => {
             component={DownloadFileScreen}
           />
         </Stack.Navigator>
-   
+        <UserNameModal
+          visible={showUserNameModal}
+          onComplete={handleUserNameComplete}
+        />
       </NavigationContainer>
     </Provider>
   );
