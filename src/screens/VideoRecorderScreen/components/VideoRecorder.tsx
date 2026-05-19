@@ -14,6 +14,7 @@ import { Camera, useCameraDevice, useCameraPermission, useMicrophonePermission, 
 import RNFS from 'react-native-fs';
 import Orientation from 'react-native-orientation-locker';
 import { getResolutionDimensions, RecordingSettings } from '../../../utils/settingsUtils';
+import { getUserProfile, formatUserNameForFolder } from '../../../utils/userProfileUtils';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
@@ -86,6 +87,14 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
   const wasRecordingBeforeBackgroundRef = useRef<boolean>(false);
   const isPausingRef = useRef<boolean>(false);
   const pausedVideoPathRef = useRef<string | null>(null);
+  const tapToFocusDataRef = useRef<Array<{
+    timestamp: number;
+    region: string;
+    locationX: number;
+    locationY: number;
+    normalizedX: number;
+    normalizedY: number;
+  }>>([]);
 
   const {
     cpuUsage,
@@ -302,6 +311,26 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     if (!isMountedRef.current) {
       return;
     }
+
+    const normalizedX = locationX / cameraLayout.width;
+    const normalizedY = locationY / cameraLayout.height;
+    const horizontalRegion =
+      normalizedX < 1 / 3 ? 'left' : normalizedX < 2 / 3 ? 'center' : 'right';
+    const verticalRegion =
+      normalizedY < 1 / 3 ? 'top' : normalizedY < 2 / 3 ? 'middle' : 'bottom';
+    const region = `${verticalRegion}-${horizontalRegion}`;
+
+    if (isRecordingRef.current) {
+      tapToFocusDataRef.current.push({
+        timestamp: Date.now(),
+        region,
+        locationX,
+        locationY,
+        normalizedX,
+        normalizedY,
+      });
+    }
+
     setFocusPoint({ x: locationX, y: locationY });
     focusFadeAnim.setValue(1);
     Animated.timing(focusFadeAnim, {
@@ -315,8 +344,6 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     });
     if (camera.current && isMountedRef.current) {
       try {
-        const normalizedX = locationX / cameraLayout.width;
-        const normalizedY = locationY / cameraLayout.height;
         await camera.current.focus({
           x: normalizedX,
           y: normalizedY,
@@ -406,6 +433,27 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     return sessionInfoPath;
   };
 
+  const saveTapToFocusConfig = async (configFolderPath: string) => {
+    const events = tapToFocusDataRef.current.map((e) => ({
+      timestamp: e.timestamp,
+      region: e.region,
+      locationX: e.locationX,
+      locationY: e.locationY,
+      normalizedX: e.normalizedX,
+      normalizedY: e.normalizedY,
+    }));
+    const tapToFocusConfig = {
+      recordingStartTime: recordingStartTime.current,
+      recordingEndTime: recordingEndTime.current,
+      tapToFocusEnabled: settings.camera.tapToFocusEnabled,
+      eventCount: events.length,
+      events,
+    };
+    const tapToFocusConfigPath = `${configFolderPath}/TapToFocus_config.json`;
+    await RNFS.writeFile(tapToFocusConfigPath, JSON.stringify(tapToFocusConfig, null, 2), 'utf8');
+    return tapToFocusConfigPath;
+  };
+
   const saveGyroscopeData = async (_videoFileName: string, folderPath: string) => {
     try {
       const gyroFileName = 'gyroscope.csv';
@@ -458,15 +506,27 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     try {
       const gpsFileName = 'gps.csv';
       const gpsFilePath = `${folderPath}/${gpsFileName}`;
-      const header = 'ts,lat,lon,speed_mps,heading_deg\n';
-      const gpsCsvRows = gpsDataRef.current
-        // @ts-ignore: gpsDataRef points include latitude/longitude/speed/heading
-        .map(p => {
-          // Convert timestamp from milliseconds to UTC seconds with microseconds as decimal points
-          const timestampSeconds = (p.timestamp / 1000).toFixed(3);
-          return `${timestampSeconds},${p.latitude},${p.longitude},${p.speed ?? ''},${p.heading ?? ''}`;
-        })
-        .join('\n');
+      const header = 'ts,lat,lon,altitude_m,speed_mps,heading_deg\n';
+      
+      // Process GPS data to ensure unique timestamps
+      let lastTimestamp = -1;
+      const processedData = gpsDataRef.current.map((p, index) => {
+        // Convert timestamp from milliseconds to UTC seconds with microsecond precision (6 decimal places)
+        let timestampSeconds = p.timestamp / 1000;
+        
+        // Ensure unique timestamps by incrementing if duplicate detected
+        // Add a small increment (0.000001 seconds = 1 microsecond) for duplicates
+        if (timestampSeconds <= lastTimestamp) {
+          timestampSeconds = lastTimestamp + 0.000001;
+        }
+        lastTimestamp = timestampSeconds;
+        
+        // Format with 6 decimal places for microsecond precision
+        const formattedTimestamp = timestampSeconds.toFixed(6);
+        return `${formattedTimestamp},${p.latitude},${p.longitude},${p.altitude ?? ''},${p.speed ?? ''},${p.heading ?? ''}`;
+      });
+      
+      const gpsCsvRows = processedData.join('\n');
       await RNFS.writeFile(gpsFilePath, header + gpsCsvRows, 'utf8');
       return gpsFileName;
     } catch (error) {
@@ -540,6 +600,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
     endTimeRef.current = '';
     currentRecordingPathRef.current = null;
     setRecordingVideoPath(null);
+    tapToFocusDataRef.current = [];
     
     // Clear intervals
     if (findFileIntervalRef.current) {
@@ -562,8 +623,12 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
         ? RNFS.DocumentDirectoryPath
         : RNFS.DownloadDirectoryPath;
 
-      // Use app container (InspectTrack) as the single parent folder
-      const sessionFolderName = `Session_${formatTimestamp(sessionStartTime)}`;
+      // Get user profile for folder naming
+      const userProfile = await getUserProfile();
+      const userNamePrefix = userProfile ? `${formatUserNameForFolder(userProfile)}_` : '';
+
+      // Use format: FirstName_LastName_Session_YYYYMMDD_HHMMSS
+      const sessionFolderName = `${userNamePrefix}Session_${formatTimestamp(sessionStartTime)}`;
       const sessionFolderPath = `${baseDir}/${sessionFolderName}`;
       const configFolderPath = `${sessionFolderPath}/Config`;
       const insFolderPath = `${sessionFolderPath}/ins`;
@@ -584,6 +649,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       const systemConfigPath = await saveSystemConfig(configFolderPath);
       const sensorConfigPath = await saveSensorConfig(configFolderPath);
       const sessionInfoPath = await saveSessionInfo(configFolderPath);
+      const tapToFocusConfigPath = await saveTapToFocusConfig(configFolderPath);
       const folderName = sessionFolderName;
 
       const avgCPU = cpuStatsRef.current.length > 0
@@ -623,12 +689,13 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       const systemConfigSaved = await verifyFileSaved(systemConfigPath, 'System Config');
       const sensorConfigSaved = await verifyFileSaved(sensorConfigPath, 'Sensor Config');
       const sessionInfoSaved = await verifyFileSaved(sessionInfoPath, 'Session Info');
+      const tapToFocusConfigSaved = await verifyFileSaved(tapToFocusConfigPath, 'TapToFocus Config');
 
       if (isMountedRef.current) {
         setIsProcessing(false);
         
         const saveLocation = Platform.OS === 'ios' ? 'Files app' : 'Downloads folder';
-        const allSaved = videoSaved && gpsSaved && gyroSaved && accelSaved && magnetometerSaved && systemConfigSaved && sensorConfigSaved && sessionInfoSaved;
+        const allSaved = videoSaved && gpsSaved && gyroSaved && accelSaved && magnetometerSaved && systemConfigSaved && sensorConfigSaved && sessionInfoSaved && tapToFocusConfigSaved;
 
         if (allSaved) {
           Alert.alert(
@@ -792,6 +859,7 @@ const VideoRecorder: React.FC<VideoRecorderProps> = ({ settings: initialSettings
       recordingEndTime.current = 0;
       isPausingRef.current = false;
       pausedVideoPathRef.current = null; // Clear any paused video path from previous session
+      tapToFocusDataRef.current = [];
       setIsRecording(true);
       setIsPaused(false);
       resetStats();
